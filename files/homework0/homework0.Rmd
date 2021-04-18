@@ -1,0 +1,94 @@
+---
+title: "Interesting Forecasting Applications with R"
+author: "Şeyma Çakır - IE360 - Spring 2021"
+date: "19.04.21"
+---
+```{r,echo=FALSE,results="hide"}
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
+```
+
+```{r,echo=FALSE,eval=FALSE}
+rmarkdown::render("/home/baydogan/Courses/IE360/Guidelines/example_homework_0.Rmd",output_format="pdf_document")
+rmarkdown::render("/home/baydogan/Courses/IE360/Guidelines/example_homework_0.Rmd",output_format="html_document")
+```
+
+1. [Time series forecasting using ARIMA models](https://blogs.oracle.com/datascience/introduction-to-forecasting-with-arima-in-r)
+
+    This example is important because it introduces the forecasting methodology using ARIMA models in R.
+      p = Number of autoregressive terms (AR)
+      d = How many non-seasonal differences are needed to achieve stationarity (I)
+      q = Number of lagged forecast errors in the prediction equation (MA)
+      *The steps are:*
+      1. **Load the R packages needed**
+      2. **Examine your data**
+      3. **Decompose your data** : *removing component(explained blow) effects from your data*
+         + Seasonalcomponent : *fluctions in the data related to calendar cycle*
+         + Trend component   : *overall patern of the series*
+         + Cycle component   : *decreasşng or increasing patterns that are not seasonal*
+      4. **Stationary** : *data which is its mean, variance, and aoutocovariance are not depended on time*
+      5. **Plot autocorrelations and choose model order** 
+      6. **Fitting an ARIMA model**
+      7. **Evaluate and Interpret your model**
+2.  [SARIMAX](https://www.statsmodels.org/dev/examples/notebooks/generated/statespace_sarimax_stata.html)   
+      
+      The basic logic of ARIMA and SARIMAX is similar. However, the difference between ARIMA and SARIMAX is seasonality and external factors. 
+      
+      The example above model SARIMAX :
+      
+        1. ARIMA(1,1,1) model on the U.S. Wholesale Price Index (WPI) dataset.
+
+        2. Variation of example 1 which adds an MA(4) term to the ARIMA(1,1,1) specification to allow for an additive seasonal effect.
+
+        3. ARIMA(2,1,0) x (1,1,0,12) model of monthly airline data. This example allows a multiplicative seasonal effect.
+
+        4. ARMA(1,1) model with exogenous regressors; describes consumption as an autoregressive process on which also the money supply is assumed to be an explanatory variable.
+
+3.  [Regression Models](https://otexts.com/fpp2/regression-intro.html)
+      
+      When we use simple or multiple linear regression model we make some assumptions that the realtionship between forecast and variables are linear and the error term distrubuted with zero mean and constant variance.
+    
+    
+      **Simple Linear Regression model**
+      
+      \begin{equation}
+      y_t = \beta_0 + \beta_1 x_t + \varepsilon_t.
+      \end{equation}
+      
+      **Multiple regression model**
+      \begin{equation}
+       y_t = \beta_{0} + \beta_{1} x_{1,t} + \beta_{2} x_{2,t} + \cdots + \beta_{k} x_{k,t} + \varepsilon_t
+      \end{equation}
+      
+     Dynamic regression model allows to error terms are corraleted by replacing  $\varepsilon_t$ with $\eta_t$ following ARIMA(1,1,1)
+     
+      **Dynamic Regression Model**
+      \begin{align*}
+       y_t &= \beta_0 + \beta_1 x_{1,t} + \dots + \beta_k x_{k,t} + \eta_t,\\
+       & (1-\phi_1B)(1-B)\eta_t = (1+\theta_1B)\varepsilon_t,
+      \end{align*}
+      
+4. [Exponential Smoothing](https://cran.r-project.org/web/packages/smooth/vignettes/es.html)
+
+      Exponential Smoothing method is useful for data which does not show any clear trend or seasonal pattern. It gives more weight last observations by decreasing older observations exponentially.
+     
+      \begin{align*}
+      \text{Forecast equation}  && \hat{y}_{t+h|t} & = \ell_{t}\\
+      \text{Smoothing equation} && \ell_{t}        & = \alpha y_{t} + (1 - \alpha)\ell_{t-1},
+      \end{align*}
+      
+      [reference](https://otexts.com/fpp2/ses.html)
+      
+5. [LSTM](https://www.r-bloggers.com/2018/04/time-series-deep-learning-forecasting-sunspots-with-keras-stateful-lstm-in-r/)
+
+    LSTM is a machine learning algorithm which is a type of RNN(Recurrent Neural Network). It is especially used in economic forecasing models since it deals with autocorrolated data successfully.
+
+     ![**LSTM model**](https://i0.wp.com/www.business-science.io/assets/2018-04-18-keras-lstm-sunspots/LSTM3-chain.png?zoom=1.25&w=578)
+            
+
+
+
+
+
+
+
