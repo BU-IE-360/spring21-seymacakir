@@ -1,4 +1,6 @@
 # Progress Journal
 
-## Homework-0
-   [Here](files/homework0/homework0.html)  *the forecast application report.*
+  ## Homework-0
+  
+     [Interesting Forecasting Applications with R](files/homework0/homework0.html)
+     
