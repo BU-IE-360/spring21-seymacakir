@@ -1,0 +1,296 @@
+---
+title: " Data Visualization and Google Trends on Three Different Measures from Turkey"
+author: "seymacakir"
+date:  "19.04.2021"
+
+output:
+ html_document:
+   toc: true
+   toc_float: true
+   smooth_scroll : true
+    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE)
+```
+
+```{r data, include=FALSE}
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(tidyr)
+library(tidyverse)
+library(scales)
+library(ggcorrplot)
+ df <- read.csv("C:/Users/seyma/OneDrive/Belgeler/GitHub/spring21-seymacakir/files/homework-1/homework1.csv", header = TRUE,sep = ";")
+ df <- df %>% drop_na()
+ names(df)[names(df) == "ï..DATE"] <- "DATE"
+ df$DATE <-  as.Date(parse_date_time(df$DATE,"Ym"),
+                             format = "%Y-%m-%d")
+
+  df = df %>% 
+  mutate(DATE = ymd(DATE)) %>% 
+  mutate_at(vars(DATE), funs(year, month, day))
+
+  trends <-  read.csv("C:/Users/seyma/OneDrive/Belgeler/GitHub/spring21-seymacakir/files/homework-1/trends.csv",
+                            header = TRUE,
+                            sep = ";")
+  names(trends)[names(trends) == "ï..date"] <- "date"
+  trends$date <-  as.Date(parse_date_time(trends$date,"Y-m"),
+                             format = "%Y-%m")
+
+  trends = trends %>% 
+  mutate(date = ymd(date)) %>% 
+  mutate_at(vars(date), funs(year, month, day))
+  
+  df["trend1"] = trends$trend1
+  df["trend2"] = trends$trend2
+  df["trend3"] = trends$trend3
+```
+**Overview of Data**
+
+   The data includes monthly export in thousands of dollars, exchange rate of USD, and USD reserve of Central Bank of Turkey in millionS of dollars from 2013 to 2020.
+```{r Data}
+table1 <- data.frame("DATE"= df$DATE, "EXPORT" = df$EXPORT, "USD"= df$USD,"RESERVE" =df$RESERVE)
+kable(head(table1), caption = "Example of Data")
+```
+  
+
+
+# 1.EXPORT
+ There is the monthly export volume of Turkey in thousands of USD from 2013 to 2020. 
+
+## Plot of Export Volume in Turkey
+ 
+```{r, fig.align='center', out.width= '%80'}
+ggplot(df, aes(DATE,EXPORT)) + geom_line(aes(color="red")) + labs( title = "Export of Turkey ", x = "time", y = "USD in Thousands")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+
+```
+ 
+ It can be observed that there are many fluctuations.However, the drop of volume in the beginnings of years and the pattern in during the years looks like a pattern. There would be callender effect and season effect in data. Besides, in 2020, there is a sharp drop which can be due to Covid-19 pandemic crises. 
+ 
+## Distrubtion of Export
+
+
+```{r Histogram}
+
+ggplot(df, aes(EXPORT)) +
+  geom_histogram( colour="black", fill="lightgray")+ 
+  geom_density(alpha=.2, fill="red", color="black") +
+  labs(title = " Distribution of Export in Turkey over 2013-2020 ", 
+       x = "Export",
+       y = "Counts") +
+  theme_minimal()
+
+```
+
+
+```{r Histogram by year}
+ggplot(df, aes(EXPORT), group = year) +
+  geom_histogram(aes(y=..density..), colour="black", fill="lightgray")+ 
+  geom_density(alpha=.2, fill="red", color="black") +
+  labs(title = " Histograms of Export Volume in Turkey over 2013-2020 ", 
+       x = "Export",
+       y = "Density-Counts") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(~year,ncol=3)
+
+
+```
+ In overall, the distribution of volume export is close to normal distribution. However, It have get flattered and its bell shape has been deformed. By looking plot graph, we can say that the fluctuations caused  the flatter shape of distribution by increasing deviation.  
+## Boxplots of Export Volume 
+ 
+```{r boxplots}
+ggplot(df, aes(x=DATE, y=EXPORT, group= year)) +
+  geom_boxplot(aes(fill= factor(year)) )+
+  labs(title = "Boxplots of Export Volume in Turkey over 2013-2020 ", 
+       x = "Years",
+       y = "USD in Thousands") +
+  scale_x_date(labels = date_format("%Y"),date_breaks = "1 year") +
+  theme_minimal() 
+```
+The boxplots show that after the 2016 average export volume increase until 2020 and the range of the data have increased.
+
+## Trend: Hal Fiyatları
+
+```{r google trend, out.width = '50%'}
+ par(mfrow=c(2,2))
+ ggplot(df, aes(DATE,EXPORT)) + geom_line(aes(color="red")) + labs( title = "Export of Turkey ", x = "time", y = "thousands USD")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+ ggplot(df, aes(DATE,trend1)) + geom_line(aes(color="red")) + labs( title = " Hal Fiyatları ", x = "time", y = " Volume")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+  
+ ggplot(df, aes(EXPORT, trend1)) + geom_point() + theme_minimal()
+ 
+ corr1 <- data.frame(df$EXPORT,df$trend1)
+ cor1 <- cor(corr1)
+ ggcorrplot(cor1,type = "lower", lab = TRUE,insig = "blank")
+ 
+ 
+
+```
+ I have searched "Hal Fiyatları" as a key words in Google Trends because I think that export volume can affect the prices. However, the scatter plot does not show a significant trend and correlation is small for to be significant. 
+
+
+# 2. USD EXCHANGE RATE
+
+There is the monthly USD exchange rate in Turkey  from 2013 to 2020. 
+
+## Plot of USD Exchange Rate in Turkey
+
+```{r}
+ggplot(df, aes(DATE,USD)) + geom_line(aes(color="red")) + labs( title = "USD Exchange Rate ", x = "time", y = "Exchange Rate")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+```
+
+The plot of USD exchange rate shows a clear increasing trend during the time. 
+## Distribution of USD Exchange Rate
+
+```{r}
+ggplot(df, aes(USD)) +
+  geom_histogram( colour="black", fill="lightgray")+ 
+  geom_density(alpha=.2, fill="red", color="black") +
+  labs(title = " USD Exchange Rate in Turkey over 2013-2020 ", 
+       x = "USD  Exchange Rate",
+       y = "Density-Counts") +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(df, aes(USD), group = year) +
+  geom_histogram(aes(y=..density..), colour="black", fill="lightgray")+ 
+  geom_density(alpha=.2, fill="red", color="black") +
+  labs(title = "Histograms of USD Exchange Rate in Turkey over 2013-2020  ", 
+       x = "USD",
+       y = "Density-Counts") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(~year,ncol=3)
+```
+
+Since there is a increasing trend, the data does not show normal distribution, however, the mean of the data has shifted. 
+
+## Boxplots of USD Exchange Rate 
+
+```{r}
+ggplot(df, aes(x=DATE, y=USD, group= year)) +
+  geom_boxplot(aes(fill= factor(year)) )+
+  labs(title = "Boxplots of USD Exchange Rate in Turkey over 2013-2020", 
+       x = "Years",
+       y = "Exchange Rate") +
+  scale_x_date(labels = date_format("%Y"),date_breaks = "1 year") +
+  theme_minimal() 
+```
+ the Box plots show more clear the increase in average USD exchange rate. Moreover, the range shows us to compare increasing rate. In 2018, USD Exchange rates have increased sharply. 
+
+## Trend : Bilgisayar Fiyatları
+
+```{r trend2 , out.width= '50%'}
+ par(mfrow=c(2,2))
+ ggplot(df, aes(DATE,USD)) + geom_line(aes(color="red")) + labs( title = "USD Exchange Rate ", x = "time", y = "thousands USD")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+ ggplot(df, aes(DATE,trend2)) + geom_line(aes(color="red")) + labs( title = " Bilgisayar Fiyatları ", x = "time", y = "volume")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+  
+ ggplot(df, aes(USD, trend2)) + geom_point() + theme_minimal()
+ 
+ corr2 <- data.frame( "USD" = df$USD, "Bilgisayar Fiyatları" = df$trend2)
+ cor2 <- cor(corr2)
+ ggcorrplot(cor2,type = "lower", lab = TRUE,insig = "blank")
+ 
+```
+ 
+ I have searched "Bilgisayar Fiyatları" as a key words in Google Trends because I think that exchange rates can affect the computer prices prices since we import computers.Therefore, people will search for decreasing in prices.Although correlation is small for to be significant, the scatter plot shows people have searched more when exchange rate increased. 
+
+
+
+
+# 3. RESERVE
+
+There is the monthly USD Reserves of Central Bank of Turkey  from 2013 to 2020.
+
+## Plot of USD Reserve of Central Bank in Turkey
+
+```{r}
+ggplot(df, aes(DATE,RESERVE)) + geom_line(aes(color="red")) + labs( title = " USD Reserve of Central Bank ", x = "time", y = "USD in Millions")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+```
+ 
+ We observe that there is a decreasing trend in USD Reserves of Turkey Central Bank. 
+ 
+## Distribution of USD Reserves 
+
+```{r}
+ggplot(df, aes(RESERVE)) +
+  geom_histogram( colour="black", fill="lightgray")+ 
+  geom_density(alpha=.2, fill="red", color="black") +
+  labs(title = "USD Reserve of Central Bank of Turkey over 2013-2020", 
+       x = "USD in Millions",
+       y = "Density-Counts") +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(df, aes(RESERVE), group = year) +
+  geom_histogram(aes(y=..density..), colour="black", fill="lightgray")+ 
+  geom_density(alpha=.2, fill="red", color="black") +
+  labs(title = "Histograms of USD Reserve of Central Bank of Turkey over 2013-2020", 
+       x = "USD in Millions",
+       y = "Density-Counts") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(~year,ncol=3)
+```
+
+ By looking the histograms, we can say that even if there is a decresing the USD Reserves in a year does not change very quickly. 
+ 
+## Boxplots of USD Reserves
+
+```{r}
+ggplot(df, aes(x=DATE, y=RESERVE, group= year)) +
+  geom_boxplot(aes(fill= factor(year)) )+
+  labs(title = "Boxplots of USD Reserve of Central Bank of Turkey over 2013-2020", 
+       x = "Years",
+       y = "USD Reserve in Millions") +
+  scale_x_date(labels = date_format("%Y"),date_breaks = "1 year") +
+  theme_minimal() 
+```
+
+The Boxplots shows that there is a clear decrease in  the average USD reserves of Central Bank
+
+## Trend : "Ekonomik Kriz"
+
+```{r trend3, out.width= '50%' }
+par(mfrow=c(2,2))
+ ggplot(df, aes(DATE,RESERVE)) + geom_line(aes(color="red")) + labs( title = "USD Reserve ", x = "time", y = "USD in Millions")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+ ggplot(df, aes(DATE,trend3)) + geom_line(aes(color="red")) + labs( title = " Ekonomik Kriz ", x = "time", y = "volume")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+  
+ ggplot(df, aes(RESERVE, trend3)) + geom_point() + theme_minimal()
+ 
+ corr3 <- data.frame( "RESERVE" = df$RESERVE, "Ekonomik Kriz" = df$trend3)
+ cor3 <- cor(corr3)
+ ggcorrplot(cor3 ,type = "lower", lab = TRUE,insig = "blank")
+```
+
+ I have searched "Ekonomik Kriz" as a key words in Google Trends because I think that economic crises affect the montary policy of Central Bank. Therefore, people will search for decreasing in prices. In 2018, there is a sharp decrease in USD reserves and peak for google trend. We can say that it is possible to there is an economic crise in 2018. 
+ 
+ 
+
+
