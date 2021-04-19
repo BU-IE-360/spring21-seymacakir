@@ -1,5 +1,5 @@
 ---
-title: " Data Visualization and Google Trends on Three Different Measures from Turkey"
+title: " Data Visualization and Google Trends "
 author: "seymacakir"
 date:  "19.04.2021"
 
@@ -291,6 +291,8 @@ par(mfrow=c(2,2))
 
  I have searched "Ekonomik Kriz" as a key words in Google Trends because I think that economic crises affect the montary policy of Central Bank. Therefore, people will search for decreasing in prices. In 2018, there is a sharp decrease in USD reserves and peak for google trend. We can say that it is possible to there is an economic crise in 2018. 
  
+ 
+# RMD [here](https://bu-ie-360.github.io/spring21-seymacakir/files/homework-1/homework-1.Rmd)
  
 
 

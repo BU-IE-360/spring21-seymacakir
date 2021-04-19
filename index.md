@@ -6,6 +6,13 @@
   
 [**Interesting Forecasting Applications with R**](files/homework0/homework0.html)
 
+
 **-----------------------------------------------------------------------------------------------------------**
 
+
 ## Homework-1
+
+[**Data Visualization and Google Trends**](files/homework-1/homework-1.html)
+
+
+**-----------------------------------------------------------------------------------------------------------**
