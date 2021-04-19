@@ -51,7 +51,7 @@ library(ggcorrplot)
 ```
 **Overview of Data**
 
-   The data includes monthly export in thousands of dollars, exchange rate of USD, and USD reserve of Central Bank of Turkey in millionS of dollars from 2013 to 2020.
+   The data includes monthly export in thousands of dollars, exchange rate of USD, and USD reserve of Central Bank of Turkey in millions of dollars from 2013 to 2020.
 ```{r Data}
 table1 <- data.frame("DATE"= df$DATE, "EXPORT" = df$EXPORT, "USD"= df$USD,"RESERVE" =df$RESERVE)
 kable(head(table1), caption = "Example of Data")
@@ -71,7 +71,7 @@ ggplot(df, aes(DATE,EXPORT)) + geom_line(aes(color="red")) + labs( title = "Expo
 
 ```
  
- It can be observed that there are many fluctuations.However, the drop of volume in the beginnings of years and the pattern in during the years looks like a pattern. There would be callender effect and season effect in data. Besides, in 2020, there is a sharp drop which can be due to Covid-19 pandemic crises. 
+ It can be observed that there are many fluctuations.However, the drop of volume in the beginnings of years and there is a pattern during the years. There would be callender effect and season effect in data. Besides, in 2020, there is a sharp drop which can be due to the Covid-19 pandemic crise. 
  
 ## Distrubtion of Export
 
@@ -102,7 +102,7 @@ ggplot(df, aes(EXPORT), group = year) +
 
 
 ```
- In overall, the distribution of volume export is close to normal distribution. However, It have get flattered and its bell shape has been deformed. By looking plot graph, we can say that the fluctuations caused  the flatter shape of distribution by increasing deviation.  
+ In overall, the distribution of export volume is close to normal distribution. However, It has get flattered and its bell shape has been deformed. By looking the plot graph, we can say that the fluctuations caused  the flatter shape of distribution by increasing deviation.  
 ## Boxplots of Export Volume 
  
 ```{r boxplots}
@@ -114,7 +114,7 @@ ggplot(df, aes(x=DATE, y=EXPORT, group= year)) +
   scale_x_date(labels = date_format("%Y"),date_breaks = "1 year") +
   theme_minimal() 
 ```
-The boxplots show that after the 2016 average export volume increase until 2020 and the range of the data have increased.
+The boxplots show that after 2016 the average of export volume has increased until 2020 and, the range of the data also have increased.
 
 ## Trend: Hal Fiyatları
 
@@ -136,7 +136,7 @@ The boxplots show that after the 2016 average export volume increase until 2020 
  
 
 ```
- I have searched "Hal Fiyatları" as a key words in Google Trends because I think that export volume can affect the prices. However, the scatter plot does not show a significant trend and correlation is small for to be significant. 
+ I have searched "Hal Fiyatları" as a key words in Google Trends because I think that export volume can affect the prices. However, the scatter plot does not show a significant trend and correlation between "hal fiyatları" and export volume. 
 
 
 # 2. USD EXCHANGE RATE
@@ -152,6 +152,7 @@ ggplot(df, aes(DATE,USD)) + geom_line(aes(color="red")) + labs( title = "USD Exc
 ```
 
 The plot of USD exchange rate shows a clear increasing trend during the time. 
+
 ## Distribution of USD Exchange Rate
 
 ```{r}
@@ -190,7 +191,7 @@ ggplot(df, aes(x=DATE, y=USD, group= year)) +
   scale_x_date(labels = date_format("%Y"),date_breaks = "1 year") +
   theme_minimal() 
 ```
- the Box plots show more clear the increase in average USD exchange rate. Moreover, the range shows us to compare increasing rate. In 2018, USD Exchange rates have increased sharply. 
+ the Box plots show more clear increase in average USD exchange rate. Moreover, the range provide us to compare increasing rate. In 2018, USD Exchange rates have increased sharply. 
 
 ## Trend : Bilgisayar Fiyatları
 
@@ -211,7 +212,7 @@ ggplot(df, aes(x=DATE, y=USD, group= year)) +
  
 ```
  
- I have searched "Bilgisayar Fiyatları" as a key words in Google Trends because I think that exchange rates can affect the computer prices prices since we import computers.Therefore, people will search for decreasing in prices.Although correlation is small for to be significant, the scatter plot shows people have searched more when exchange rate increased. 
+ I have searched "Bilgisayar Fiyatları" as a key words in Google Trends because I think that exchange rates can affect the computer prices since we import computers.Therefore, people will search for decreasing in prices.Although correlation is small to be significant, the scatter plot shows people have searched more when exchange rate increased. 
 
 
 
@@ -255,7 +256,7 @@ ggplot(df, aes(RESERVE), group = year) +
   facet_wrap(~year,ncol=3)
 ```
 
- By looking the histograms, we can say that even if there is a decresing the USD Reserves in a year does not change very quickly. 
+ By looking the histograms, we can say that even if there is a decreasing trend in the USD Reserves of Central Bank during a year does not change very quickly. 
  
 ## Boxplots of USD Reserves
 
@@ -269,7 +270,7 @@ ggplot(df, aes(x=DATE, y=RESERVE, group= year)) +
   theme_minimal() 
 ```
 
-The Boxplots shows that there is a clear decrease in  the average USD reserves of Central Bank
+The Boxplots show that there is a clear decrease in  the average USD reserves of Central Bank
 
 ## Trend : "Ekonomik Kriz"
 
@@ -289,7 +290,7 @@ par(mfrow=c(2,2))
  ggcorrplot(cor3 ,type = "lower", lab = TRUE,insig = "blank")
 ```
 
- I have searched "Ekonomik Kriz" as a key words in Google Trends because I think that economic crises affect the montary policy of Central Bank. Therefore, people will search for decreasing in prices. In 2018, there is a sharp decrease in USD reserves and peak for google trend. We can say that it is possible to there is an economic crise in 2018. 
+ I have searched "Ekonomik Kriz" as a key words in Google Trends because I think that economic crises affect the monatary policy of Central Bank. In 2018, there is a sharp decrease in USD reserves and peak for google trend. We can say that it is possible to there is an economic crise in 2018. 
  
  
 # RMD [here](https://bu-ie-360.github.io/spring21-seymacakir/files/homework-1/homework-1.Rmd)
