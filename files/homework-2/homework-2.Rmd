@@ -1,0 +1,429 @@
+---
+title: " My First Time Series Forecasting Model "
+author: " Şeyma Çakır "
+date:  "`r format(Sys.Date(), '%d. %m. %Y')`" 
+output:
+ html_document:
+   toc: true
+   toc_float: true
+   smooth_scroll : true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE)
+```
+ 
+
+``` {r import and manipulate data, include = FALSE }
+library(lubridate)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(tidyr)
+library(tidyverse)
+library(scales)
+library(ggcorrplot)
+library(forecast)
+df <- read.csv("C:/Users/seyma/OneDrive/Belgeler/GitHub/spring21-seymacakir/files/homework-2/homework-2.csv", header = TRUE,sep = ";")
+df  <- data.table(df)
+names(df)
+names(df)[names(df) =="ï..Tarih"] <- "DATE"
+ df$DATE <-  as.Date(parse_date_time(df$DATE,"Ym"),
+                             format = "%Y-%m-%d")
+  df = df %>% 
+  mutate(DATE = ymd(DATE)) %>% 
+  mutate_at(vars(DATE), funs(year, month, day))
+
+```
+
+# Introduction
+
+
+  In this report, **the Second Hand House Sales in Turkey** is analyzed. the Data using in the analysis consists of second hand house sales volume from  January 2013 to 2021 March and the aim of this study construct a time series regression model to forecast next month's (April 2021) sales.I construct my model step by step, and after get a basic times series regression model, some related ecomomic variables from [EVDS](https://evds2.tcmb.gov.tr/index.php?/evds/serieMarket) added to improve my model by analyzing correlation between second hand house sales in Turkey. In the end, the model results discussed and  compared real value with predicted value. 
+  
+### Example of Data 
+
+``` {r, include=FALSE}
+
+ kable(head(df[1:5]), caption = "Example of Data")
+
+```
+
+
+
+# Data Manipulation and Visualization of Data
+
+There is graph of second  hand house sales over the years, histogram of second hand house sales, and boxplot of data year by year to get general idea about the data.  
+
+## Overview
+
+```{r Second Hand House Sales in Time, out.width= '50%'}
+ggplot(df, aes(DATE,SecondHandHouseSales)) + geom_line(aes(color="red")) + labs( title = "Second Hand House Sales in Time", x = "time",    y = "Sales")  +  
+  theme_minimal() +
+  scale_x_date(labels = date_format("%Y/%m"),breaks = date_breaks("1 year"))
+```
+
+From the graph "Second Hand House Sales in Time", It is obsreved that the variance of second hand house sales is increasing over the time, especially between 2019 and 2021. 
+
+```{r Distribution of Second Hand House Sales in Turkey, out.width= '50%'}
+ggplot(df,aes(SecondHandHouseSales))  + geom_histogram( aes(y=..density..),colour="black", fill="lightgray") + geom_density(alpha=.2, fill="red", color="black") +
+  labs(title = " Distribution of Second Hand House Sales in Turkey ", 
+       x = "Sales",
+       y = "Counts") +
+    theme_minimal()
+
+```
+
+
+ It can be said that the second hand house sales is distributed nearly normal if some outliers will be removed after the reason behind these outliers. There is a few excessive amount of sales in the data by considering the graph of sales in time these sales occured in the begining of 2020 and 2021. During these time, Turkey is affected by covid-19 pandemic. The people can tend to be buy second hand house from rural regions to spend their time during quarantine or it can be depends on their economic concerns like rent.  
+
+```{r Boxplots of Second Hand House Sales}
+ggplot(df, aes(x=DATE, y=SecondHandHouseSales, group= year)) +
+  geom_boxplot(aes(fill= factor(year)) )+
+  labs(title = "Boxplots of Second Hand House Sales ", 
+       x = "Years",
+       y = "Sales") +
+  scale_x_date(labels = date_format("%Y"),date_breaks = "1 year") +
+  theme_minimal()
+```
+
+By analyzing boxplots, it is more clear that there is outliers in 2020 and besides them there is low sales in 2017 and drop in average second hand sales in 2018, It can be due to the economic crisis in 2018. Morever, there is a slight trend in  the average of second hand house sales year by year. 
+
+
+
+## Second Hand House Sales Statistics by Year
+
+If data is observed year by year, the sales between 2013 and 2018 seems to have normal distribution and stationary. However after the 2018 the variance of sales is increasing. 
+
+```{r House Sales Statistics by Year , out.width= '50%'}
+ggplot(df, aes(SecondHandHouseSales), group = year) +
+  geom_histogram(aes(y=..density..), colour="black", fill="lightgray")+ 
+  geom_density(alpha=.2, fill="red", color="black") +
+  labs(title = " Histograms of Second Hand Sales Statistics ", 
+       x = "Sales",
+       y = "Density-Counts") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(~year,ncol=3)
+
+ggplot(df, aes(x =month, y = SecondHandHouseSales))+ geom_line(aes(color="red")) +
+  labs(title = " Second Hand House Sales in Time", 
+       x = "Time",
+       y = "Sales") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(~year,ncol=3)
+
+ 
+```
+
+# Construct a Time Series Regression Model 
+
+First of all, the data saved as a timer series data since the data consist of yearly period by twelve months. 
+```{r prepare data for the modeli}
+tsdata <- ts(data=df$SecondHandHouseSales, frequency = 12, start=c(2013,1))
+
+```
+
+
+```{r plot the time series data, include = FALSE}
+plot(tsdata, ylab = "Second Hand House Sales ")
+```
+
+The sales has increasing variance , logarithms of sales taken and plotted to get more stable data
+
+```{r}
+sales=data.table(log_sales=as.numeric(log(tsdata)))
+ggplot(sales, aes( y= log_sales)) + geom_line(aes(x= df$DATE)) +
+  labs( title = " log(sales)" ,
+       x = "sales" , 
+       y = "time")
+
+```
+
+
+It seems more stable, therefore the model continued with the logartihms of sales and in the end it will be trasformed. 
+
+
+
+
+## Check Aouto Correlation
+
+It is possible to data has aoutocorrealation and seasonality to get more accurate model, it is checked. 
+
+```{r check ACF}
+# check ACF
+acf(tsdata , lag.max = 24)
+
+```
+
+There is a stong positive correalation in lag 1 and lag 9, therefore firstly I add my model the observations before one month ago and nine month ago, and analyze the effects on the sales for the current values. 
+
+
+
+```{r create lag variables, include = FALSE}
+sales[, lag1 := c(0,sales$log_sales[1:98])]
+sales[, lag9 := c(0,0,0,0,0,0,0,0,0,sales$log_sales[9:98])]
+
+```
+
+** Create the lag1 variable and construct a model **
+
+```{r lag1 }
+fit <- lm(log_sales~lag1, data = sales[-1])
+summary(fit)
+checkresiduals(fit)
+```
+
+lag1 is seems to be a significant variable for the model and the residuals seems to be near normal distribution but have increasing variance and no high auotocorrelation between themselves, I will add the lag1 variable and study on the increasing varibale in next steps.
+
+
+```{r}
+fit <- lm(log_sales~  lag1 + lag9 , data = sales[-9])
+summary(fit)
+checkresiduals(fit)
+```
+
+By adding lag9 variable the R-Saquared of teh model is significantly decreased and the moel seems to insignificant, therefore I removed the lag9 variable and contiune with the lag1 variable. 
+
+There is the model by constructing with using lag1 variable and the plot of real variables.
+
+```{r create month factor since lag1 disturb time, include = FALSE}
+month=seq(1,12,by=1)
+sales=cbind(sales,month)
+
+```
+
+```{r}
+sales <- sales[-1]
+fit <- lm(log_sales~lag1, data = sales)
+sales[,fitted:=fitted(fit)]
+ggplot(sales, aes(x= df$DATE[-1])) + geom_line(aes(y= fitted, color = "red")) + geom_point(aes(y= log_sales)) +
+  labs(
+    title = "Fitted vs Sales",
+    x = "time",
+    y= "log(sales)"
+  ) +
+  theme_minimal()
+```
+
+the model seems not well covered variance of sales by considering low adjusted-R squared of model and the graph above. 
+
+## Add Trend 
+
+In the box plot of data, it was observed that there is a slight trend in the data, therefore I added the trend component to the model.
+```{r create trend component, include = FALSE}
+sales[,trend := 1:.N]
+```
+
+
+```{r adding trend component}
+
+fit <- lm(log_sales ~ trend + lag1, data = sales)
+summary(fit)
+checkresiduals(fit)
+
+```
+
+The trend component increase the autocorrelation between residuals and disturb normal distribution, howeever, I will add to my model since it increase adjusted R-squared value significantly and it seems to significant for my model. 
+
+```{r}
+sales$fitted <- fit$fitted
+ggplot(sales, aes(x= trend)) + geom_line(aes(y= fitted, color = "red")) + geom_point(aes(y= log_sales)) +
+  labs(
+    title = "Fitted vs Sales",
+    x = "time",
+    y= "log(sales)"
+  ) +
+  theme_minimal()
+```
+
+## Add Seasonality Component
+
+By loooking the graph of second hand house sales during time, it is observed that increase in the beginings of year and drops the middles of years. Therefore, I add the seasonality component as a factor of months.
+
+
+
+```{r add month as a factor variable}
+
+fit <- lm(log_sales ~ lag1 +trend  + as.factor(month) , data = sales)
+summary(fit)
+checkresiduals(fit)
+
+```
+
+```{r plotting fitted values, include = FALSE}
+sales$fitted <- fit$fitted
+ggplot(sales, aes(x= df$DATE[-1])) + geom_line(aes(y= fitted, color = "red")) + geom_point(aes(y= log_sales)) +
+  labs(
+    title = "Fitted vs Sales",
+    x = "time",
+    y= "log(sales)"
+  ) +
+  theme_minimal()
+
+```
+
+
+Adding months as a factor variable clearly improved my model. The autocorrelation in month nine is obeserve as a significant variable in seasonality. 
+
+
+## Removing Outliers
+
+I construct my model by removing outliers and check the results.
+```{r}
+
+externals <- df[, c( "USD", "ConsumerLoan", "PrBuyingBuildingHome")]
+externals <- externals[-1]
+sales <<- cbind(sales,externals)
+outliers <- boxplot(sales$log_sales, plot=FALSE)$out
+sales <- sales[-which(sales$log_sales %in% outliers)]
+fit <- lm(log_sales ~  trend + lag1 + as.factor(month), data = sales)
+summary(fit)
+checkresiduals(fit)
+```
+
+Removing outliers improved my model significantly and decrease the increasing variance in residuals. 
+
+# Improve Model by Adding External Variables
+
+I will add my model related external ecnomics variables from [EVDS](https://evds2.tcmb.gov.tr/index.php?/evds/serieMarket)  that can  affect the second hand house sales in Turkey. The variables are USD exchange Rate, interest rate of Consumer Loan for Housing, and resluts of Survey in Turkey which reported probabilty of buying or building home(over the next 12 months). 
+
+First of all, the correlation between variables is computed.
+
+```{r adding external economic factors, include = FALSE }
+
+library("GGally")
+externals <- data.table(df[,2:5])
+ggpairs(externals) + theme_minimal() + labs( title = "Correlation Between House Sales and Economic Factors")
+
+```
+
+
+The USD Exchange Rate, and Survey Results seems to be significant. Even tough correlation between interest rate of consumer loan and second hand house sales is low, it can be affect the second hand house sales. 
+
+## USD Exchange Rate
+
+USD exchange rate is positively correlated with Second hand house sales. Turkish people use as a saving source the USD since turkish liras losing its value. It can be reason of the positive correlation. 
+
+```{r adding USD exchange rate, out.width ='%50'}
+fit <- lm(log_sales ~ USD, data = sales)
+summary(fit)
+checkresiduals(fit)
+
+fit <- lm(log_sales ~  trend + lag1 + as.factor(month) + USD, data = sales)
+summary(fit)
+checkresiduals(fit)
+
+```
+ 
+In the first model I add only USD exchange rate and I see it is significant but not sufficient for the predicted house sales.
+
+Secondly, If we examine the results with time series components even if USD exchange rates highly positive correlated with the second hand house sales, it is insignificant and has negative coefficient in the model. However, I will keep USD exchange rate in my model to analyze with other external variables. 
+
+## Interest Rate of Consumer Loan for Housing 
+
+It is expected that negative realtionship between interest rates and second hand house sales since it is long term dept. Negative correlation rate is support this idea. 
+```{r}
+
+fit <- lm(log_sales ~ trend + lag1 + as.factor(month) + USD + ConsumerLoan, data = sales)
+summary(fit)
+checkresiduals(fit)
+
+
+```
+ 
+ Adding consumer loan is clearly improved my model by increasing adjusted R squared value and reduce correlation between residuals. Therefore, I will keep interest rates in my model. 
+ 
+## The Probability of buying or Building a Home 
+
+The Probability of buying or Building a Home  is expected to positive corellation with Second hand house sales since it shows people's tendency to buy house. 
+
+```{r}
+fit <- lm(log_sales ~ trend +  lag1 + as.factor(month) + USD + ConsumerLoan + PrBuyingBuildingHome , data = sales)
+summary(fit)
+checkresiduals(fit)
+```
+ 
+Results of The Probability of buying or Building a Home does not improved adjusted R-squared of my model.
+
+## Final Shape of the Model
+
+In the end, USD exchange rate and Probabilty of buyingv or uilding home is insignificant in my model, therefore I will extract both of them from my model to get more clean model, and my model has the final shape. However, its adjusted R-squared values is not sufficient as I expected. It is can be improved by analyzing deeply the reasons of variations in the data.
+
+```{r Final Shape of the Model}
+fit <- lm(log_sales ~ trend +  lag1 + as.factor(month) + ConsumerLoan  , data = sales)
+summary(fit)
+
+```
+
+
+
+There is a graph of fitted values of my model and the real values of second hand house sales. 
+```{r visualization of model, out.width =  '50%'}
+
+sales$fitted <- fit$fitted
+sales[,time:= c(1:92)]
+ggplot(sales, aes(x = time)) + geom_line(aes(y= fitted, color = "fitted")) + geom_line(aes(y= log_sales, color = "sales")) +
+  labs(
+    title = "Fitted and Sales",
+    x = "time",
+    y= "log(sales)"
+  ) +
+  theme_minimal()
+
+ggplot(sales, aes(x= log_sales, y= fitted))  + geom_point(aes(color = "red")) + geom_abline(slope=1, intercept=0, color = "blue") +
+  labs(
+    title = " Fitted vs Sales",
+    x = "time",
+    y= "log(sales)"
+  ) +
+  theme_minimal()
+
+plot(fit$residuals)
+
+```
+
+
+In the end, my model is insufficient for explain variance in the data. Expecially in lower values since there is more deviations observed in "Fitted vs Sales", besides even if my residuals have nearly zero mean, they have high variance. 
+
+
+# Prediction
+
+**MY PREDICTION FOR NEXT MONTH IS**
+```{r prediction}
+sales= rbind(sales, list(0,11.26287,0,4,NA,99,0,0,0,93))
+exp(predict(fit,sales[is.na(fitted)==T]))
+
+```
+
+There is a predictions and actual values of the second hand house sales in Turkey based on my model. It is expected an increase. 
+
+```{r}
+sales[is.na(fitted)==T,fitted:=predict(fit,sales[is.na(fitted)==T])]
+sales$log_sales[93]<- sales$log_sales[92]
+ggplot() + 
+  geom_line(data = sales, aes(x = trend, y = exp(fitted),color = "predicted")) +
+  geom_line(data = sales, aes(x = trend, y = exp(log_sales),color = "actual")) +
+  xlab('time') +
+  ylab('"sales"') 
+```
+
+
+
+# Conclusion
+ In this report, I explained my first time series regression model for the forecast next month's second hand house sales. My model is not a strong model since its Adjusted R-squared value is low and there is still variability in my model. 
+ First of all, I take the logarithm of sales since there is a increasing variance, then I tried to add time series components to my model. All components was significant and I kept them in my model.
+ Before add new variablesi I removed outliers from my data. 
+ Finally, I analyzed the relationship between the second hand house sales and some economic factors whİch I get from [EVDS](https://evds2.tcmb.gov.tr/index.php?/evds/serieMarket). Unfortunately only interest of consumer loans was significant, and I keep it in my model only interest rate of consumer loans. 
+ In the End, I compare my predictions with actual variables, and predict next month sale. 
+
+# References 
+[the Central Bank of the Republic of Turkey’s Electronic Data Delivery System](https://evds2.tcmb.gov.tr)
+
+[PS4](https://moodle.boun.edu.tr/pluginfile.php/788893/mod_resource/content/1/time_series_regression.R)
+
+# RMD 
+ To understand better my model, click [here]() for my RMD file. 
+
