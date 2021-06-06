@@ -1,0 +1,85 @@
+---
+title: "Project"
+author: "seymacakir"
+date: "05 06 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(lubridate)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(tidyr)
+library(tidyverse)
+library(scales)
+library(ggcorrplot)
+library(forecast)
+library(urca)
+library(zoo)
+
+```
+
+
+
+# Data 
+
+```{r}
+rawdata <- read.csv("C:/Users/seyma/OneDrive/Belgeler/GitHub/spring21-seymacakir/files/project/ProjectRawData.csv", header = TRUE,sep = ",")
+rawdata <- as.data.table(rawdata)
+
+head(rawdata)
+str(rawdata)
+summary(rawdata)
+
+rawdata$event_date <- as.Date(rawdata$event_date, format = "%Y-%m-%d")
+
+rawdata <- rawdata[!is.na(sold_count)]
+
+rawdata = rawdata %>% 
+  mutate_at(vars(event_date), funs(year, month, quarter, week, day))
+
+dailysold <- rawdata %>% group_by(event_date) %>% summarize( total_sell = sum(sold_count)) %>% as.data.table()
+dailysold[,log_sold := log(total_sell)]
+
+ggplot(dailysold, aes(x = event_date, y = total_sell))+ geom_line(color = "blue")
+ggplot(dailysold, aes(x = event_date, y = log_sold))+ geom_line( color = "red") 
+
+
+acf(dailysold$log_sold)
+pacf(dailysold$log_sold)
+
+weeklysold <- rawdata %>% group_by(year,week) %>% summarize( average_sell = mean(sold_count)) %>% as.data.table()
+ggplot(weeklysold, aes(x = week, y = average_sell))+ geom_line(color = "blue")
+acf(weeklysold$average_sell)
+
+monthlysold <- rawdata %>% group_by(year,month)%>% summarize( total_sell = sum(sold_count)) %>% as.data.table()
+str(monthlysold)
+ggplot(monthlysold, aes(x = 1:13, y = total_sell))+ geom_line(color = "blue")
+acf(monthlysold$total_sell)
+
+
+
+y2020 <- rawdata[year==2020] %>% group_by(event_date) %>% summarize( sell = sum(sold_count))  %>% as.data.table()
+y2021 <- rawdata[year==2021] %>% group_by(event_date) %>% summarize( sell = sum(sold_count))  %>% as.data.table()
+
+
+outliers <-  c( y2020[sell %in% boxplot.stats(sell)$out]$event_date,
+                y2021[sell %in% boxplot.stats(sell)$out]$event_date)
+outlier_index <- which(rawdata$event_date %in% outliers)
+
+
+outliers
+
+
+```
+
+
+
+

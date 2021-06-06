@@ -425,5 +425,5 @@ ggplot() +
 [PS4](https://moodle.boun.edu.tr/pluginfile.php/788893/mod_resource/content/1/time_series_regression.R)
 
 # RMD 
- To understand better my model, click [here](https://github.com/BU-IE-360/spring21-seymacakir/blob/master/files/homework-2/homework-2.Rmd) for my RMD file. 
+ To understand better my model, click [here](# RMD [here](https://bu-ie-360.github.io/spring21-seymacakir/files/homework-2/homework-2.Rmd)) for my RMD file. 
 

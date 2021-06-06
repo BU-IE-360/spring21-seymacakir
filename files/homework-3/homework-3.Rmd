@@ -1,0 +1,635 @@
+---
+title: " Decomposition and ARIMA "
+author: " Şeyma Çakır "
+date:  " 2021-06-06 " 
+output:
+ html_document:
+   toc: true
+   toc_float: true
+   smooth_scroll : true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE)
+```
+
+```{r, include = FALSE}
+library(lubridate)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(tidyr)
+library(tidyverse)
+library(scales)
+library(ggcorrplot)
+library(forecast)
+library(urca)
+library(zoo)
+
+
+rawdata <- read.csv("C:/Users/seyma/OneDrive/Belgeler/GitHub/spring21-seymacakir/files/homework-3/homework-3.csv", header = TRUE,sep = ",")
+rawdata  <- data.table(rawdata)
+names(rawdata)<- c("date", "hours","consumption")
+
+
+
+```
+
+
+
+
+
+# Time Series  Decomposition and Forecasting with ARIMA 
+
+
+## Introduction 
+ The Forecasting Energy Consumption is a key factor to construct energy market in energy markets since price of energy is determined before consumption. [EPIAS](https://seffaflik.epias.com.tr/transparency/tuketim/gerceklesen-tuketim/gercek-zamanli-tuketim.xhtml) is a platform that provide data of hourly electricity consumption of Turkey to operate and develop energy markets in an effective, transparent and sustainable manner.
+ The report explains the methods which I used for predicting hourly electricity consumption of the Turkey for next two week. The data provided by [EPIAS](https://seffaflik.epias.com.tr/transparency/tuketim/gerceklesen-tuketim/gercek-zamanli-tuketim.xhtml) is contains hourly electricity consumption of Turkey from 1 January 2016 to 20 May 2021. The aim of the study is to  transform data to  stationary series and  use this series in AR and MA models to select best fit model by comparing them. 
+ 
+ 
+## Data Manipulation
+
+The graph is below shows electricity consumption of Tukey from 1 January 2016 to 20 May 2021. Since zero consumption is nor a realistic case the data manipulated to eliminate effect of zero consumption by changing zero consumption with mean of consumption before one hour ago and one hour later. There is a clear seasonality and slightly trend. It is colored by seansons, since there is a clear increase in beginning of winter and summer. It can be reason that winter is cold in Turkey and Summer is hot. The electricity can be used for heating-cooling and the day length depends on seasons. 
+
+
+ 
+```{r}
+
+rawdata$consumption <- as.numeric(gsub(",","", rawdata$consumption,fixed=TRUE))
+rawdata <- unite(rawdata,"time", 1:2, sep = " ")
+
+rawdata = rawdata %>% 
+  mutate(time = as_datetime(rawdata$time, format = "%d.%m.%Y %H:%M")) %>% 
+  mutate_at(vars(time), funs(year, month, quarter, week, day,hour))
+rawdata = rawdata[1:47184]
+rawdata = rawdata %>%
+  mutate( seasons = factor(quarter, labels = c("Winter", "Spring","Summer", "Fall")))
+
+zeroconsumpiton <- which(rawdata$consumption == 0)[[1]]
+rawdata[zeroconsumpiton]$consumption <- (rawdata[zeroconsumpiton-1]$consumption + rawdata[zeroconsumpiton+1]$consumption) /2
+
+ggplot(rawdata, aes(x = time, y = consumption, color = seasons)) + geom_line() + 
+  labs(
+    x = "Time",
+    y = "Volume of Consumption",
+    main = "Hourly Electiricty Consumption of Turkey over 2016-2021",
+    caption = "EPIAS"
+  )
+
+```
+
+
+
+## Seasonality and Decomposition 
+
+### Hourly Electricity Consumption
+
+The hourly consumption is shown in the graph below. There is a clear pattern and slight trend. 
+
+```{r, include=FALSE}
+
+
+ggplot(rawdata[1:64], aes(x = time, y = consumption)) + geom_line() +
+  labs(
+    x = "Time",
+    y = "Electricity Consumption",
+    title = "Hourly Electricity Consumption"
+    
+    )+
+  theme_minimal()
+```
+
+To see more, the mean of consumption according to hour is shown. It is not a linear relationship so there is no clear trend between hour and the time, however, it can be said that there is a relationship between hour and consumption. by observing the line graph and mean of consumption based on hour, it seems like the electricity consumption is clearly increasing during the daytime and decreasing at night. 
+
+```{r, include= FALSE}
+df <- rawdata
+
+hourly <- ts(df$consumption, frequency = 24, start(2016,1,1,1,0) )
+ggsubseriesplot(hourly) +
+  ylab("Volume of Hourly Electricity") +
+  ggtitle(" Hourly Electricity Consumption")
+```
+ 
+ 
+ 
+the acf and pacf graph is plotted to see consumption of electricity relationship between previous consumption. At lag 24, there is a  high autocorrelation,  and it can be reason that there is a season effect of day hours. 
+
+```{r, include=FALSE}
+ggtsdisplay(hourly) 
+```
+I decomposed the hourly data by both type (additive and multiplicative) and the result of decompose show that the additive method give more stationary data. After subtracting seasonal component and trend component, it is observed that ACF shows sinusoidal geometric shape and there is sharp decrease after lag 1 in the PACF graph therefore AR model can be suitable. 
+```{r}
+print("the addtive model")
+ur.kpss(decompose(hourly, type = "add")$random)
+print("the multiplicative model")
+ur.kpss(decompose(hourly, type = "mul")$random)
+
+
+decomposed_hourly <- decompose(hourly, type = "add")
+autoplot(decomposed_hourly) 
+acf(decomposed_hourly$random,na.action = na.pass)
+pacf(decomposed_hourly$random, na.action = na.pass)
+```
+
+
+
+### Daily Electicity Consumption 
+
+The Daily Electricity Consumption of Turkey calculating by sum of all day consumption. The line graph below shows electricity consumption of 21 days and it is observed that there is a pattern. 
+
+```{r}
+daily <- df %>%  group_by(year,month,day) %>% summarize( daily_consumption = sum(consumption)) %>% as.data.table()
+
+
+ggplot(daily[1:21], aes(x = day, y = daily_consumption)) + geom_line() +
+  labs(
+    x = "Time",
+    y = "Electricity Consumption",
+    title = "Daily Electricity Consumption during 21 Days"
+    
+    )+
+  theme_minimal()
+
+```
+
+To see more clearly relationship between past days is shown by lag graph, mean of consumption according to days,ACF and, PACF graph.  
+
+```{r}
+
+gglagplot(daily$daily_consumption)
+tsdaily <- ts(daily$daily_consumption, frequency = 7, start(2016,1,1))
+
+ggsubseriesplot(tsdaily) +
+  ylab("electricity") +
+  ggtitle(" Daily Electricity Consumption")
+
+
+acf(daily$daily_consumption)
+pacf(daily$daily_consumption)
+
+```
+The correlation between lag 7 is significantly high, therefore, we can say that there is a season effect of day. 
+
+``` {r}
+
+print("the additive model")
+ur.kpss(decompose(tsdaily, type = "add")$random)
+print("the multiplicative model")
+ur.kpss(decompose(tsdaily, type = "mul")$random)
+
+```
+By comparing KPSS unit test values of additive test method and multiplicative method, the additive method gives more stationary serie therefore, the additive model used for decomposition. 
+
+```{r}
+decomposed_daily <- decompose(tsdaily) 
+
+autoplot(decomposed_daily)
+
+acf(decomposed_daily$random, lag = 14, na.action = na.pass)
+pacf(decomposed_daily$random, lag = 14, na.action = na.pass)
+
+```
+
+After subtracting seasonal component and trend component, it is observed that ACF shows sinusoidal geometric shape and there is sharp decrease after lag 1 in the PACF graph therefore AR model can be suitable. 
+
+
+
+### Weekly Electricity Consumption
+
+The weekly consumption is calculated by average consumption of weeks since a year does not start on Monday and end on Sunday. By observing the graph, it can be said that varinace is not constant, therefore, to get more healthy result for model applying tranformation can be good idea, however, I did not use transormation since aim of this step is observing seasonality.  
+
+```{r}
+weekly <- df %>%  group_by(year,week) %>% summarize(weekly_consumption = mean(consumption))
+tsweekly <- ts(weekly$weekly_consumption, frequency = 53, start = c(2016,1))
+autoplot(tsweekly) + ylab("Consumpotion") + ggtitle("Weekly Electiricity Consumption")
+
+acf(weekly$weekly_consumption, lag = 53)
+pacf(weekly$weekly_consumption, lag = 53)
+
+ggsubseriesplot(tsweekly) +
+  ylab(" Volume of Electricity Consumption ") +
+  ggtitle(" Weekly Electricity Consumption ")
+
+
+```
+By observing the graphs above, there is no significant effect of previous weeks, however, the weeks of the year shows similar behaviors due to the season effect. 
+
+```{r}
+print("the additive model")
+ur.kpss(decompose(tsweekly, type = "add")$random)
+print("the multiplicative model")
+ur.kpss(decompose(tsweekly, type = "mul")$random)
+
+
+
+decomposed_weekly <- decompose(tsweekly, type = "mul") 
+autoplot(decomposed_weekly)
+
+acf(decomposed_weekly$random, lag = 53,  na.action = na.pass)
+pacf(decomposed_weekly$random, lag = 53,na.action = na.pass)
+
+```
+The increasing varinace was mentioned above, the effect pf increasing varinace was observed in decompositon models, since multiplicative model can handle with increasing varinace, it gave more stationary series. 
+
+
+### Monthly Electricity Consumption 
+
+The monthly electricity consumotion daata is prepared by average consumption since the days in month change. There is a pattern in the data which is mentioned before. The electricity consumption tends to increase during the winter and summer. The graph al shows more clear that there is a trend during the years. 
+```{r}
+monthly <- df %>% group_by(year,month) %>% summarize(monthly_consumption = mean(consumption))
+tsmonthly <- ts(monthly$monthly_consumption, frequency = 12, start = c(2016,1))
+
+autoplot(tsmonthly) + ylab("Consumption") + ggtitle(" Monthly Electricity Consumption")
+
+ggsubseriesplot(tsmonthly) +
+  ylab(" Volume of Electricity Consumption ") +
+  ggtitle(" Monthly Electricity Consumption ")
+
+ 
+```
+```{r}
+acf(monthly$monthly_consumption, lag = 24 )
+pacf(monthly$monthly_consumption, lag = 24)
+
+gglagplot(monthly$monthly_consumption, lags = 12)
+```
+By observing lag plot, ACF and, PACF, the lag 12 has high correlation and it shows season effect. 
+
+
+```{r}
+
+print("the additive model")
+ur.kpss(decompose(tsmonthly, type = "add")$random)
+print("the multiplicative model")
+ur.kpss(decompose(tsmonthly, type = "mul")$random)
+
+decomposed_monthly <-  decompose(tsmonthly, type = "mul") 
+autoplot(decomposed_monthly)
+acf(decomposed_monthly$random, na.action = na.pass)
+pacf(decomposed_monthly$random, na.action = na.pass)
+
+```
+The multiplicative method gives more stationary results like weekly data, since there is also increasing variance,however, It is not as significant as weekly data. The effect of changes in conditions is more significantly observable in weekly data. 
+
+
+As a result, the hour and day effect is clear in the data. Moreover, the average consumption is clearly depend on the month In summer and winter months, consumotion is increasing. 
+
+## Hourly and Daily Decomposition  
+
+
+The ACF and PACF based on 7*24 frequency shows that there are season effects of hour and say since lag 24 have high correaltion and lag 128 have higher correlation than lag 24.  
+
+The data used in decomposition is updated as the consumption before 2016-05-06 since it will be used in forecast two weeks ahead and tested if it is stationary or not. The test-statistic is not significant therefore it is rejected and it will be tested after decomposition.
+In ACF graoh the autocorralatin in lag 24 and lag7*24 is high, it can be say that data shows seasonality in hour and day. 
+
+```{r}
+df <- rawdata[ 1:46848]
+summary(ur.kpss(df$consumption))
+acf(df$consumption, lag = 2*24*7)
+
+```
+
+### Addtive and Multiplicative Decomposition 
+
+In this part the simple decomposition are used based on 24*7 frequency. However, the simple methods use one seasonal component and in this case, it is not properly suitable. 
+
+```{r}
+ts_data<- ts( df$consumption, frequency = 7*24, start = c(2016,1,1,0) )
+autoplot(ts_data)
+
+
+print("the additive model")
+ur.kpss(decompose(ts_data, type = "add")$random)
+print("the multiplicative model")
+ur.kpss(decompose(ts_data, type = "mul")$random)
+
+```
+
+
+
+Both method is enough to get stationary serie according to KPSS test, however, additive method is more stationary. Therefore, I continue with additive decomposition model. 
+
+```{r}
+add <- decompose(ts_data, type = "add") 
+
+autoplot(add) + ggtitle("Additive Decomposition Method") + theme_minimal()
+```
+
+
+
+
+
+When the ACF and PACH graphs are observed, the seasonal effect is still observable. 
+
+```{r}
+acf(add$random, lag = 24*7,na.action = na.pass)
+pacf(add$random,lag = 24*7, na.action = na.pass)
+
+
+```
+
+
+
+## Multiple Season Effect Decomposition 
+
+Since both hour and day effect is observable, it is need to be handled separately, therefore, I used multiple seasonal decomposition method based on 24 and 24*7 frequency. 
+
+``` {r}
+
+msts_cons<- msts(df$consumption, seasonal.periods = c(24, 24*7))
+decomposed_msts <- mstl(msts_cons)
+autoplot(decomposed_msts) 
+print("Multiple Seasonal Effect Method")
+randommsts <- decomposed_msts[,5]
+ur.kpss(randommsts)
+
+```
+
+It is seen that the method separate two seasonal compomnents and get a more stationary serie than additive model. 
+
+```{r}
+ 
+acf(randommsts,lag = 2*24*7, na.action = na.pass)
+pacf(randommsts,lag = 2*24*7, na.action = na.pass)
+
+
+``` 
+the ACF shows exponential decreasing behavior which shows that season effect is less than additive method and Partial autocorrelation values decreased. I will continue to my model by using multiple seasonal effect decomposition method.Moreover, the PACF is not increase significantly after lag 1, therefore the autoregressive model can be more suitable.It shows that data has the effect of early observations , however, when the relationships of intervening observations removed, correlation between previous observations is not too high since partical autocorrelation is not high. 
+
+## ARIMA Models 
+
+
+
+In this part of report, different AR and MA models will be tried to get better fit model based on AIC values.  
+
+ 
+When the ACF and PACF plots are examined , ACF is geometrically decaying and there is a spkie at lag 1 in PACF, therefore I think     AR model (autoregressive model) can be more suitable with p = 1, however I will try different models and select a model by considering their AIC values. 
+
+### Autoregressive Model
+ The value of different AR(p) models is listed below, the AIC values decreasing when p value is increasing and I stopped to try at 9 since the decrease in AIC values is geting smaller and model complexity is increasing. If I construct an Autoreggressive Model, I choose p = 3 because at p=4 AIC increase and the decrease in AIC values is negligible and p = 3 is relatively simple model. 
+
+```{r}
+AR <- data.table("AIC" =  rep(0,9))
+for (i in 1:9 ){
+model <- arima(randommsts,c(i,0,0))
+print(paste( " in model order = (",i,0,0 , ") AIC = ", model$aic))
+AR$AIC[i] <- model$aic
+}
+
+ggplot(AR, aes(x = c(1,2,3,4,5,6,7,8,9), y = AIC)) + geom_line() + 
+  labs(
+    x = "AR(p)",
+    y = "AIC",
+    title = "AIC values of Autoregressive Models"
+  ) + 
+  scale_x_continuous(name="AR(p)",breaks=c(1,2,3,4,5,6,7,8,9)) + 
+  theme_minimal()
+
+
+```
+
+
+### Moving Average 
+
+By examining ACF and PACF plot of the consumption Data and AIC values of MA models,AR is seems more suitable model. 
+
+```{r}
+MA <- data.table("AIC" = rep(0,9))
+for (i in 1:9 ){
+model <- arima(randommsts,c(0,0,i))
+print(paste( " in model order = (",0,0,i , ") AIC = ", model$aic))
+MA[i] <-  model$aic 
+}
+
+ggplot(MA, aes(x = c(1,2,3,4,5,6,7,8,9), y = AIC)) + geom_line() + 
+  labs(
+    x = "MA(q)",
+    y = "AIC",
+    title = "AIC values of Moving Average"
+  ) + 
+  scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9)) + 
+  theme_minimal()
+
+
+```
+
+
+
+### ARIMA 
+
+
+
+At first,if the model needs differencing checked by ndiffs() function. 
+
+```{r}
+print( paste(" # of differencing needed is" , ndiffs(randommsts)))
+```
+Since the data do not require differencing d = 0, and different combination of p and q is tried and results are given below. 
+
+
+
+```{r}
+
+
+
+ARMA <- c( "1,0,1" = arima(randommsts, c(1,0,1))$aic,
+  "2,0,1" = arima(randommsts,c(2,0,1))$aic,
+  "1,0,2" =  arima(randommsts, c(1,0,2))$aic,
+  "2,0,1" = arima(randommsts, c(2,0,1))$aic,
+  "2,0,2" = arima(randommsts, c(2,0,2))$aic,
+  "3,0,2" = arima(randommsts, c(3,0,2))$aic,
+  "2,0,3" = arima(randommsts, c(2,0,3))$aic,
+  "3,0,3" = arima(randommsts, c(3,0,3))$aic,
+  "1,0,3" = arima(randommsts, c(1,0,3))$aic,
+  "3,0,1" = arima(randommsts, c(3,0,1))$aiC )
+print(ARMA)
+```
+
+arima( 3,0,3) has the lowest AIC value. 
+
+### Model Selection 
+
+The all AIC values of tried models are compared and the lowest value is 625296.3 by arima(3,0,3), therefore arima(3,0,3) is choosen for the forecasting model. 
+
+
+```{r}
+
+AICvalues <- data.table("AIC" = c(AR[1:5]$AIC,MA[1:5]$AIC,ARMA), "Models" = c("1,0,0", "2,0,0", "3,0,0", "4,0,0", "5,0,0", 
+            "0,0,1","0,0,2","0,0,3","0,0,4", "0,0,5",
+            names(ARMA)))
+
+ AICvalues <- AICvalues[order(AIC)]
+ print(AICvalues[1])
+
+
+ggplot(AICvalues[order(AIC)], aes( x = Models, y = AIC)) + geom_point( ) + 
+  geom_abline(slope = 0, intercept = AICvalues[which.min(AIC)]$AIC, color = "red") +
+  geom_vline(slope = 1, xintercept = AICvalues[which.min(AIC)]$Models, color = "red") +
+  labs( 
+    y = "AIC",
+    title = "AIC values of different ARIMA models"
+    ) + theme( text.element.x = element_blank()) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+ 
+ 
+
+
+```
+
+### Resiudal Analysis
+
+```{r }
+model <- arima(randommsts, order = c(3,0,3))
+
+
+checkresiduals(model)
+ 
+```
+The Residuals are not significantly autocorrellated and when the histogram is observed they look like normal distribution, however the mean of residuals  is 
+
+```{r}
+print(mean(model$residuals))
+```
+However the mean is close enough zero and the model look like a good fit. 
+
+The fitted values of model and the actual values are plotted below to see more clearly the performance of model. 
+
+
+```{r}
+trend <- as.numeric(decomposed_msts[,2])
+season24 <- as.numeric(decomposed_msts[,3])
+season168 <- as.numeric(decomposed_msts[,4])
+
+
+model_fitted <- randommsts - residuals(model)
+model_fitted_transformed <- model_fitted + trend + season24 + season168
+
+fitted <- data.table( "Date" = df$time, "RealConsumption" = df$consumption, "ModelFitted" = model_fitted_transformed)
+
+
+ggplot() + 
+  geom_line(data = fitted, aes(x = Date, y = RealConsumption), color = "yellow")+
+  geom_line(data = fitted, aes(x = Date, y = ModelFitted), color = "blue", alpha=  0.5 ) +
+   labs(
+    x = "Time",
+    y= "Consumption",
+    title = "Real Consumption vs. Model Fitted Values"
+  )+
+  theme_minimal()
+ 
+```
+
+
+## Forecast 
+
+In this study, the hourly consumption of Turkey from 2021-05-06 00.00 to 2021-05-21 23.50 is predicted by arima(3,0,2) model.
+The decomposition of hourly data is used and the data decomposed four components which are trend, 24 hour season effect, 24*7 season effect which is day effect, and the remainder part, the remainder part is used in model therefore after the prediction based on remainder part trend and seasonal components added the remainder part. 
+
+
+```{r}
+
+predicted <- predict(model, n.ahead  = 14*24)$pred
+
+
+trend<- rep((tail(trend[!is.na(trend)],1)),14*24)
+seasonality <- (season24[(length(season24)-14*24 + 1):length(season24)] + season168[(length(season168)-14*24 + 1):length(season168)])
+
+
+
+transformedpredicted <- data.table("predicted"=  predicted + trend + seasonality, "Date" = seq.POSIXt(
+     from=as.POSIXct("2021-05-06 0:00", tz="UTC"),
+     by="hour",
+     length.out = 14*24
+   ) ) 
+
+ggplot() + geom_line(data = df, aes(x = time, y= consumption), color = "blue")  +
+  geom_line(data = transformedpredicted, aes( x= Date, y = predicted), color= "red")
+
+
+
+
+```
+
+```{r}
+actual <- rawdata[time>= "2021-05-06 23-00" & time < "2021-05-20 00:00"]
+ggplot() + geom_line(data = transformedpredicted, aes( x= Date, y = predicted, color = "Predicted")) +
+  geom_line(data = actual, aes(x = time, y= consumption, color = "Actual"))  +
+  labs(
+    x = "Time",
+    y = "Consumption",
+    title = "The Hourly Electricity Consumption between 2021-05-06 and 2021-05-20"
+  ) + theme_minimal()
+  
+
+
+
+```
+### Daily Consumption
+
+The daily mean consumption is calculated and plotted below. 
+
+```{r}
+
+dailyactual <- actual %>% group_by(date(time)) %>% summarize( Consumption = mean(consumption)) %>% data.table()
+names(dailyactual) = c("Date","Consumption")
+dailyactual<- dailyactual[-1]
+dailypredcited <- transformedpredicted %>% group_by(date(Date)) %>% summarize( Consumption = mean(predicted)) %>% data.table()
+names(dailypredcited) =  c("Date","Consumption")
+ggplot() + geom_line(data = dailypredcited, aes( x= Date, y = Consumption, color = "Predicted")) +
+  geom_line(data = dailyactual, aes(x = Date, y= Consumption, color = "Actual"))  +
+  labs(
+    x = "Time",
+    y = "Consumption",
+    title = "The Daily Average Electricity Consumption between 2021-05-06 and 2021-05-20"
+  ) + theme_minimal()
+  
+
+
+```
+### model evaluation
+```{r}
+x <- as.numeric( dailyactual[-1]$Consumption)
+y <- as.numeric(dailypredcited$Consumption)
+accu=function(actual,forecast){
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.frame(n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
+
+}
+
+accu(x,y)
+```
+It can be said that between May 10 and May 17 model can not successfully forecast, however, during this time in Turkey  religion holiday was celebrated, and the religion holiday is determined according to islamic calendar and model is weak the find effect of holiday.
+
+
+
+## Conslusion 
+
+In conclusion, at first the data is analized overall. It is checked  that if there are  seasonality, trend or unusual patterns. The Hour, Day , and month effect is clearly observable. Moreover, the behavior of data in summer and winter shows that temperature can has effect on the consumption. Some special events and holidays data shows different pattern from the usual one. By adding, effects of different factors model can be improved. 
+
+
+## References 
+
+[EPIAS](https://seffaflik.epias.com.tr/transparency/tuketim/gerceklesen-tuketim/gercek-zamanli-tuketim.xhtml)
+
+[Forecasting: Principles and Practice](https://otexts.com/fpp2/)
+
+ and suplemantary codes from Boun IE 360 Spring 2021 class by Mustafa Baydoğan
+
+
+# RMD 
+ The code of my study is available from [here](https://bu-ie-360.github.io/spring21-seymacakir/files/homework-3/homework-3.Rmd)
+
