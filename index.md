@@ -22,8 +22,8 @@
 [**My First Time Series Regression Model**](files/homework-2/homework-2.html)
 
 **-----------------------------------------------------------------------------------------------------------**
-## Homework-
+## Homework-3
 
-[**Decomposition and ARIMA**](files/homework-2/homework-2.html)
+[**Decomposition and ARIMA**](files/homework-3/homework-3.html)
 
 **-----------------------------------------------------------------------------------------------------------**
