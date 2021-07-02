@@ -1,12 +1,16 @@
 ---
-title: "Project"
-author: "seymacakir"
-date: "05 06 2021"
-output: html_document
+title: " IE 360 Project: Trendyol Products Sales Forecasting "
+author: " Seyma Cakir - 2017402024 Oya Hoban - 2018402150 Ozlem SENEL - 2017402117 "
+date:  " 2021-06-06 " 
+output:
+ html_document:
+   toc: true
+   toc_float: true
+   smooth_scroll : true
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set( echo = FALSE, warning = FALSE, message = FALSE)
 ```
 
 
@@ -30,6 +34,8 @@ library(zoo)
 library(reshape)
 library(GGally)
 library(PerformanceAnalytics)
+library(gridExtra)
+library(corrplot)
 
 
 get_token <- function(username, password, url_site){
@@ -146,8 +152,8 @@ password = p_word
 token = get_token(username=u_name, password=p_word, url=subm_url)
 data = get_data(token=token,url=subm_url)
 
-predictions=unique(data[,list(product_content_id)])
-predictions[,forecast:=2.3]
+#predictions=unique(data[,list(product_content_id)])
+#predictions[,forecast:= c(224,110,122,494,2,474,22,62,56)]
 
 #send_submission(predictions, token, url=subm_url, submit_now=T)
 
@@ -182,6 +188,9 @@ rawdata <- rbind(rawdata,forecastdata) %>% distinct(event_date, product_content_
 rawdata[,w_day:= wday(event_date)]
 rawdata[,mon:= month(event_date)]
 
+forecastdata[,w_day:= wday(event_date)]
+forecastdata[,mon:= month(event_date)]
+
 
 # campaign 
 
@@ -213,131 +222,19 @@ products[[i]] <- as.data.table(rawdata[product_content_id == product_content_id[
 
 ```
 
-```{r graphs }
-
-
-
-for(i in 9:9){
- 
-  
-g1 <-ggplot(products[[i]], aes( x = event_date, y = sold_count)) + geom_line() + ggtitle(paste("product",i)) +theme_minimal()  
-g2 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(w_day))) + geom_boxplot() + 
-  ggtitle(paste("product",i))+ theme_minimal() 
-g3 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(mon))) + geom_boxplot()+
-      ggtitle(paste("product",i))+ theme_minimal() 
-g4 <- ggplot(products[[i]], aes( x = sold_count)) + geom_histogram() + ggtitle(paste("product",i)) + theme_minimal()+
-        facet_wrap(~factor(w_day))
-g5 <-ggplot(products[[i]], aes( x = sold_count )) + geom_histogram() + theme_minimal()+ ggtitle(paste("product",i))+
-      facet_wrap(~factor(mon))
-
-
-print(g1)
-print(g2)
-print(g3)
-print(g4)
-print(g5)
-ACF <- acf( products[[i]]$sold_count, plot = FALSE)
-plot(ACF, main = paste("ACF OF Product",i))
-PACF <- pacf( products[[i]]$sold_count, plot = FALSE)
-plot(PACF, main = paste("PACF OF Product",i))
-
-}
- 
 
 
 
 
 
-```
-
-```{r}
-accu=function(actual,forecast,model){
-  model = model
-  n=length(actual)
-  error=actual-forecast
-  mean=mean(actual)
-  sd=sd(actual)
-  CV=sd/mean
-  FBias=sum(error)/sum(actual)
-  MAPE=sum(abs(error/actual))/n
-  RMSE=sqrt(sum(error^2)/n)
-  MAD=sum(abs(error))/n
-  MADP=sum(abs(error))/sum(abs(actual))
-  WMAPE=MAD/mean
-  l=data.frame(model,n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
-  return(l)
-}
-```
-
-
-```{r}
-
-product7 <- products[[7]]
 
 
 
 
-product7[is.na(price)]$price <- mean(product7[!is.na(price)]$price)
-
-product7[,trend := 1:.N]
+```{r, functions}
 
 
-acf(product7$sold_count)
-pacf(product7$sold_count)
-
-product7[ty_visits==1, ty_visits:= mean(ty_visits)]
-product7 [, lag1:= shift(sold_count,1)]
-product7[is.na(lag1), lag1 := 0]
-product7 [, lag2:= shift(sold_count,2)]
-product7[is.na(lag2), lag2 := mean(sold_count[1]) ]
-product7 [, lag3:= shift(sold_count,3)]
-product7[is.na(lag3), lag3 := mean(sold_count[1:2]) ]
-product7 [, lag7:= shift(sold_count,7)]
-product7[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
-
-product7 [, plag1:= shift(price,1)]
-product7[is.na(plag1), plag1 := mean(price) ]
-
-
-product7[, sqrt:= sqrt(sold_count)]
-lambda <- BoxCox.lambda(product7$sold_count)
-product7[, BoxCox := BoxCox(sold_count,lambda = lambda)]
-
-test_dates <- tail(product7,15)$event_date
-nextday <- tail(product7,1)
-train7 <-  product7[!(event_date %in% test_dates)]
-test_dates <- test_dates[1:14]
-test7 <- product7[event_date %in% test_dates][1:14]
-
-forecast_ahead <- 1
-
-
-autoplot(ts(product7$sold_count))
-lm7 <- lm( sold_count ~ price  + visit_count + basket_count + category_basket  + factor(mon) +  factor(is_campaign) + trend + lag1 + lag3 , train7)
-summary(lm7)
-checkresiduals(lm7)
-
-plot(train7$sold_count, lm7$fitted)
-ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count), color = "blue") + geom_line( aes( x = train7$event_date,y = lm7$fitted), color = "red")
-
-autoplot(ts(product7$sqrt))
-sqrt_lm7 <- lm(sqrt~  price  + visit_count  + basket_count + ty_visits  + factor(mon)  + lag1  + plag1 + factor(is_campaign) + category_visits + category_basket , train7 )
-summary(sqrt_lm7)
-checkresiduals(sqrt_lm7)
-
-plot(train7$sold_count, (sqrt_lm7$fitted)^2)
-ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count), color = "blue") + geom_line( aes( x = train7$event_date,y = (sqrt_lm7$fitted)^2), color = "red")
-
-
-
-autoplot(ts(product7$BoxCox))
-BoxCox_lm7 <- lm(BoxCox~ price + visit_count  + basket_count + category_sold + ty_visits  + factor(mon) + lag1 + lag7 + plag1 + factor(is_campaign)  + category_basket , train7)
-summary(BoxCox_lm7)
-checkresiduals(BoxCox_lm7)
-
-plot(train7$sold_count, InvBoxCox(BoxCox_lm7$fitted, lambda = lambda))
-ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count), color = "blue") +
-  geom_line( aes( x = train7$event_date,y = InvBoxCox(BoxCox_lm7$fitted, lambda = lambda)), color = "red")
+# product 7 
 
 forecast_lm7=function(data,forecast_data){
     fitted_lm=lm(sold_count ~ price  + visit_count + basket_count + category_basket  + factor(mon) +  factor(is_campaign) + trend + lag1 + lag3 , data)
@@ -347,342 +244,36 @@ forecast_lm7=function(data,forecast_data){
 
 
 forecast_lm7_sqrt=function(data,forecast_data){
-    fitted_lm=lm(sqrt~   price  + visit_count  + basket_count + ty_visits  + factor(mon)  + lag1 + lag7  + plag1 + factor(is_campaign) + category_basket, data)
+    fitted_lm=lm(sqrt~   price  + visit_count  + basket_count + ty_visits  + factor(mon)  + lag1 + lag7   + factor(is_campaign) + category_basket, data)
     forecasted=predict(fitted_lm,forecast_data)
     return(list(forecast=as.numeric(forecasted),model=fitted_lm))
 }
 
 forecast_BoxCox7=function(data,forecast_data){
-    fitted_lm=lm(BoxCox~ price + visit_count  + basket_count + category_sold + ty_visits  + factor(mon) + lag1 + lag7 + plag1 + factor(is_campaign)  + category_basket , data)
-    forecasted=  forecasted=predict(fitted_lm,forecast_data)
+    fitted_lm=lm(BoxCox~ price + visit_count  + basket_count + category_sold + ty_visits  + factor(mon) + lag1 + lag7  + factor(is_campaign)  + category_basket , data)
+   forecasted=predict(fitted_lm,forecast_data)
     return(list(forecast=as.numeric(forecasted),model=fitted_lm))
 }
 
 
 
-sqrt_forecasted_sold<- c()
-BoxCox_forecasted_sold <- c()
-lm_forecasted_sold <- c()
 
-for(i in 1:length(test_dates)){
-    current_date=test_dates[i]-forecast_ahead
-    past_data=product7[event_date<=current_date]
-    forecast_data=product7[event_date==test_dates[i]]
-    
-    forecasted=forecast_lm7_sqrt(past_data,forecast_data)
-    sqrt_forecasted_sold[i]<- forecasted$forecast^2
-    
-    forecasted=forecast_BoxCox7(past_data,forecast_data)
-    BoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
-    
-    forecasted=forecast_lm7(past_data,forecast_data)
-    lm_forecasted_sold[i]<- forecasted$forecast
+forecast_lm7_arima <- function(data,forecast_data){
+fitted_lm=lm(sold_count ~ price  + visit_count + basket_count + category_basket  + factor(mon) +  factor(is_campaign) + trend + lag1 + lag3 , data)
+ur.kpss(residuals(fitted_lm))
+residuals= ts( residuals(fitted_lm), frequency = 7)
+fitted_arima <- auto.arima(residuals)
+
+forecasted <- as.numeric(predict(fitted_lm,forecast_data)) + predict(fitted_arima, n.ahead = 1)$pred[1]
+return(forecasted)
 }
 
 
+# product 8 
 
-prediction7 <- data.table("event_date" = test_dates,lm_forecasted_sold,sqrt_forecasted_sold,BoxCox_forecasted_sold)
-prediction7[, combine1 := (3*lm_forecasted_sold+2*sqrt_forecasted_sold)/5]
-
-for(i in 2:length(prediction7)){
-  
-  print(accu(test7$sold_count,prediction7[,..i],colnames(prediction7[,..i])))
-}
-
-
-
-ggplot() + geom_line(data = product7[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = prediction7,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
-   geom_line(data = prediction7,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
-  geom_line(data = prediction7,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) +
-  geom_line(data = prediction7,aes( x = event_date,y =combine1, color = "Combine1"))
-  
-  
-
-
-
-
-
-temp <- tail(product7[,c(1,5,6,7,8,9,10,11,12,13)],15)
-
-test7[,c(1,5,6,7,8,9,10,11,12,13)] <- temp[1:14]
-
-
-
-
-
-testsqrt_forecasted_sold<- c()
-testBoxCox_forecasted_sold <- c()
-testlm_forecasted_sold <- c()
-
-for(i in 1:length(test_dates)){
-    current_date=test_dates[i]-forecast_ahead
-    past_data=product7[event_date<=current_date]
-    forecast_data=test7[i]
-    
-    forecasted=forecast_lm7_sqrt(past_data,forecast_data)
-    testsqrt_forecasted_sold[i]<- forecasted$forecast^2
-    
-    forecasted=forecast_BoxCox7(past_data,forecast_data)
-    testBoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
-    
-    forecasted=forecast_lm7(past_data,forecast_data)
-    testlm_forecasted_sold[i]<- forecasted$forecast
-}
-
-
-testprediction7 <- data.table("event_date" = test_dates,testlm_forecasted_sold,testsqrt_forecasted_sold,testBoxCox_forecasted_sold)
-testprediction7[, combine1 := (21*testlm_forecasted_sold+15*testsqrt_forecasted_sold)/(21+15)]
-
-for(i in 2:length(testprediction7)){
-  
-  print(accu(test7$sold_count,testprediction7[,..i],colnames(testprediction7[,..i])))
-}
-
-
-ggplot() + geom_line(data = product7[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = testprediction7,aes( x = event_date,y =testsqrt_forecasted_sold, color = "Sqrt"))+ 
-   geom_line(data = testprediction7,aes( x = event_date,y =testlm_forecasted_sold, color = "No Transformation")) + 
-  geom_line(data = testprediction7,aes( x = event_date,y =testBoxCox_forecasted_sold, color = "BoxCox")) +
-  geom_line(data = testprediction7,aes( x = event_date,y =combine1, color = "Combine1"))
-
-
-
-
-
-
-```
-
-
-
-```{r}
-
-
-
-my_data <- product7[, 4:13]
-chart.Correlation(my_data, pch=19)
-
-
-xreg7 <- product7[ , c( "price","visit_count",  "basket_count","category_basket" , "ty_visits","is_campaign")]
-xreg7 <- as.matrix(xreg7)
-
-add_arima=function(data,h,f){
- ts <- ts(data$sold_count,frequency =f )
- add <- decompose(ts, type = "add") 
- fitted <- auto.arima(add$random, seasonal= FALSE)
- seasonal <- add$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
- trend <- tail(add$trend[!is.na(add$trend)],1)
- forecastted <- as.numeric(forecast(fitted,h)$mean) + seasonal + trend
- return(forecastted)
-}
-
-xreg_add_arima=function(data,h,f, xreg){
- ts <- ts(data$sold_count,frequency =f )
- add <- decompose(ts, type = "add") 
- train_xreg<- xreg[1:length(data$event_date)]
- for_xreg <- xreg[(length(data$event_date))]
- fitted <- auto.arima(add$random, seasonal= FALSE, xreg = train_xreg)
- seasonal <- add$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
- trend <- tail(add$trend[!is.na(add$trend)],1)
- forecastted <- as.numeric(forecast(fitted,h,xreg = for_xreg)$mean) + seasonal + trend
- return(forecastted)
-}
-
-
-
-
-
-mul_arima=function(data,h,f){
- 
- ts <- ts(data$sold_count,frequency =f )
- mul <- decompose(ts, type = "mul") 
- fitted <- auto.arima(mul$random, seasonal= FALSE)
- seasonal <- mul$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
- trend <- tail(mul$trend[!is.na(mul$trend)],1)
- forecasted <- as.numeric(forecast(fitted,h)$mean)*seasonal*trend
- return(forecasted)
-}
-
-xreg_mul_arima=function(data,h,f, xreg){
- ts <- ts(data$sold_count,frequency =f )
- mul <- decompose(ts, type = "mul") 
- train_xreg<- xreg[1:length(data$event_date)]
- for_xreg <- xreg[(length(data$event_date)) ]
- fitted <- auto.arima(mul$random, seasonal= FALSE, xreg = train_xreg)
- seasonal <- mul$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
- trend <- tail(mul$trend[!is.na(mul$trend)],1)
- forecastted <- as.numeric(forecast(fitted,h,xreg = for_xreg)$mean)*seasonal*trend
- return(forecastted)
-}
-
-
-testprediction7[, add_arima_forecasted := 0]
-testprediction7[ , mul_arima_forecasted := 0]
-testprediction7[, reg_add_arima_forecasted := 0]
-testprediction7[ ,reg_mul_arima_forecasted := 0]
-
-for(i in 1:length(test_dates)){
-    current_date=test_dates[i]-forecast_ahead
-    past_data=product7[event_date<=current_date]
-    forecast_data=product7[event_date==test_dates[i]]
-    
-    
-    testprediction7$add_arima_forecasted[i] <- add_arima(past_data,1,7)
-    testprediction7$reg_add_arima_forecasted[i] <- xreg_add_arima(past_data,1,7,xreg7)
-    testprediction7$mul_arima_forecasted[i] <- mul_arima(past_data,1,7)
-    testprediction7$reg_mul_arima_forecasted[i] <- xreg_mul_arima(past_data,1,7,xreg7)
-}
-
-testprediction7 [ ,combine2 := (3*testlm_forecasted_sold+5*testsqrt_forecasted_sold + 1*reg_mul_arima_forecasted)/9]
-
-
-ggplot() + geom_line(data = product7[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = testprediction7,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
-   geom_line(data = testprediction7,aes( x = event_date,y =mul_arima_forecasted, color = "mul_arima_forecasted")) +
-   geom_line(data = testprediction7,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
-   geom_line(data = testprediction7,aes( x = event_date,y =reg_mul_arima_forecasted , color = "reg_mul_arima_forecasted"))+ 
-  geom_line(data = testprediction7,aes( x = event_date,y =combine2 , color = "combine2"))
-  
-
-  
-  
-
-testprediction7[,actual:= product7[event_date %in% test_dates]$sold_count]
-
-
-
-melted_result=melt(testprediction7,c('event_date','actual'))
-
-error7 =  data.table()
-
-for(i in 2:(length(testprediction7))){
-  
-
-  error7 <- rbind(error7, accu(test7$sold_count,testprediction7[,..i],colnames(testprediction7[,..i])))
-}
-
-
-
-## forcast nex day
-
-xreg <- as.matrix( nextday[ , c( "price","visit_count",  "basket_count","category_basket" , "ty_visits","is_campaign")])
-
-
-
-add_arima(product7,1,7)
-mul_arima(product7,1,7)
-xreg_mul_arima(product7,1,7, xreg7)
-xreg_add_arima(product7,1,7, xreg7)
-forecast_lm7(product7,nextday)$forecast
-InvBoxCox(forecast_BoxCox7(product7,nextday)$forecast, lambda = lambda)
-(forecast_lm7_sqrt(product7,nextday)$forecast)^2
- 
-
-( (21*forecast_lm7(product7,nextday)$forecast)  + (15*((forecast_lm7_sqrt(product7,nextday)$forecast)^2)) ) / (21+15)
-
-
-
-```
-
-
-
-
-
-
-
-
-```{r}
-
-product8 <- products[[8]]
-
-
-
-
-product8[is.na(price)]$price <- mean(product8[(!is.na(price)) & (price>= 0) ]$price)
-product8[price<=0]$price <- mean(product8[!is.na(price)]$price)
-
-
-
-summary(product8)
-
-
-product8[,trend := 1:.N]
-
-product8[ty_visits==1, ty_visits:= mean(ty_visits)]
-product8 [, lag1:= shift(sold_count,1)]
-product8[is.na(lag1), lag1 := 0]
-product8 [, lag2:= shift(sold_count,2)]
-product8[is.na(lag2), lag2 := mean(sold_count[1]) ]
-product8 [, lag5:= shift(sold_count,5)]
-product8[is.na(lag5), lag5 := mean(sold_count[1:4]) ]
-product8 [, lag7:= shift(sold_count,7)]
-product8[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
-
-
-
-
-product8[ , price_lag_4 := shift(price,4)]
-product8[ , price_lag_5 := shift(price,5)]
-product8[ , price_lag_6 := shift(price,6)]
-product8[ , price_lag_7 := shift(price,7)]
-product8[is.na(price_lag_4)]$price_lag_4 <-mean(product8[is.na(price_lag_4)]$price_lag_4)
-product8[is.na(price_lag_5)]$price_lag_5 <-mean(product8[is.na(price_lag_5)]$price_lag_5)
-product8[is.na(price_lag_6)]$price_lag_6 <-mean(product8[is.na(price_lag_6)]$price_lag_6)
-product8[is.na(price_lag_7)]$price_lag_7 <-mean(product8[is.na(price_lag_7)]$price_lag_7)
-
-product8[is.na(price_lag_4), price_lag_4:= mean(price) ]
-product8[is.na(price_lag_5), price_lag_5:= mean(price) ]
-product8[is.na(price_lag_6), price_lag_6:= mean(price) ]
-product8[is.na(price_lag_7), price_lag_7:= mean(price) ]
-
-
-
-product8[, sqrt:= sqrt(sold_count)]
-lambda <- BoxCox.lambda(product8$sold_count)
-product8[, BoxCox := BoxCox(sold_count,lambda = lambda)]
-
-test_dates <- tail(product8,15)$event_date
-nextday <- tail(product8,1)
-train8 <-  product8[!(event_date %in% test_dates)]
-test_dates <- test_dates[1:14]
-test8 <- product8[event_date %in% test_dates][1:14]
-
-
-
-forecast_ahead <- 1
-
-
-
-
-autoplot(ts(product8$sold_count))
-lm8 <- lm( sold_count ~ price +   visit_count + basket_count + category_favored  +  factor( w_day )  + factor(mon)  + lag1 + lag2  + price_lag_4, train8)
-summary(lm8)
-checkresiduals(lm8)
-
-plot(train8$sold_count, lm8$fitted)
-ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count), color = "blue") + geom_line( aes( x = train8$event_date,y = lm8$fitted), color = "red")
-
-autoplot(ts(product8$sqrt))
-sqrt_lm8 <- lm(sqrt ~ price + visit_count  + basket_count +  category_favored + factor(w_day) + factor(mon) + lag1, data = train8)
-summary(sqrt_lm8)
-checkresiduals(sqrt_lm8)
-
-plot(train8$sold_count, (sqrt_lm8$fitted)^2)
-ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count), color = "blue") + geom_line( aes( x = train8$event_date,y = (sqrt_lm8$fitted)^2), color = "red")
-
-
-
-autoplot(ts(product8$BoxCox))
-BoxCox_lm8 <- lm(BoxCox~ price + visit_count  +  basket_count  + category_favored + factor( w_day ) + factor(mon) + lag1,train8)
-summary(BoxCox_lm8)
-checkresiduals(BoxCox_lm8)
-
-plot(train8$sold_count, InvBoxCox(BoxCox_lm8$fitted, lambda = lambda))
-ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count), color = "blue") +
-  geom_line( aes( x = train8$event_date,y = InvBoxCox(BoxCox_lm8$fitted, lambda = lambda)), color = "red")
 
 forecast_lm8=function(data,forecast_data){
-    fitted_lm=lm( sold_count ~ price +   visit_count + basket_count + category_favored  +  factor( w_day )  + factor(mon)  + lag1 + lag2  + price_lag_4,data)
+    fitted_lm=lm( sold_count ~ price +   visit_count + basket_count + category_favored  +  factor( w_day )  + factor(mon)  + lag1 + lag2 + price_lag_1 +price_lag_4 ,data)
     forecasted=predict(fitted_lm,forecast_data)
     return(list(forecast=as.numeric(forecasted),model=fitted_lm))
 }
@@ -701,329 +292,18 @@ forecast_BoxCox8=function(data,forecast_data){
 }
 
 
+forecast_lm8_arima <- function(data,forecast_data){
+fitted_lm=lm( sold_count ~ price +   visit_count + basket_count + category_favored  +  factor( w_day )  + factor(mon)  + lag1 + lag2 + price_lag_1 +price_lag_4 ,data)
+#ur.kpss(residuals(fitted_lm))
+residuals= ts( residuals(fitted_lm), frequency = 7)
+fitted_arima <- auto.arima(residuals)
 
-
-sqrt_forecasted_sold<- c()
-BoxCox_forecasted_sold <- c()
-
-lm_forecasted_sold <- c()
-
-for(i in 1:length(test_dates)){
-  
-    current_date=test_dates[i]-forecast_ahead
-    past_data=product8[event_date<=current_date]
-    forecast_data=product8[event_date==test_dates[i]]
-    
-    forecasted=forecast_lm8_sqrt(past_data,forecast_data)
-    sqrt_forecasted_sold[i]<- (forecasted$forecast)^2
-    
-    
-    forecasted=forecast_lm8(past_data,forecast_data)
-    lm_forecasted_sold[i]<- forecasted$forecast
-    
-    forecasted=forecast_BoxCox8(past_data,forecast_data)
-    BoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
+forecasted <- predict(fitted_lm,forecast_data) + predict(fitted_arima, n.ahead = 1)$pred[1]
+return(forecasted)
 }
 
 
-
-prediction8 <- data.table("event_date" = test_dates,lm_forecasted_sold,sqrt_forecasted_sold,BoxCox_forecasted_sold)
-#prediction8[, combine1 := (3*lm_forecasted_sold+2*sqrt_forecasted_sold)/5]
-
-for(i in 2:length(prediction8)){
-  
-  print(accu(test8$sold_count,prediction8[,..i],colnames(prediction8[,..i])))
-}
-
-
-
-ggplot() + geom_line(data = product8[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = prediction8,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
-   geom_line(data = prediction8,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
-  geom_line(data = prediction8,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) 
-  #geom_line(data = prediction8,aes( x = event_date,y =combine1, color = "Combine1"))
-  
-  
-
-
-
-
-
-temp <- tail(product8[,c(1,5,6,7,8,9,10,11,12,13)],15)
-
-test8[,c(1,5,6,7,8,9,10,11,12,13)] <- temp[1:14]
-
-
-
-
-
-testsqrt_forecasted_sold<- c()
-testBoxCox_forecasted_sold <- c()
-testlm_forecasted_sold <- c()
-
-for(i in 1:length(test_dates)){
-    current_date=test_dates[i]-forecast_ahead
-    past_data=product8[event_date<=current_date]
-    forecast_data=test8[i]
-    
-    forecasted=forecast_lm8(past_data,forecast_data)
-    testlm_forecasted_sold[i]<-  round(forecasted$forecast,0)
-    
-    forecasted=forecast_lm8_sqrt(past_data,forecast_data)
-    testsqrt_forecasted_sold[i]<- round(forecasted$forecast^2,0)
-    
-    forecasted=forecast_BoxCox8(past_data,forecast_data)
-    if (InvBoxCox(forecasted$forecast, lambda = lambda) < 0 || InvBoxCox(forecasted$forecast, lambda = lambda) > (testsqrt_forecasted_sold[i] +testlm_forecasted_sold[i])){
-      testBoxCox_forecasted_sold[i] <- (testsqrt_forecasted_sold[i] +testlm_forecasted_sold[i])/2
-    }
-    else {
-    testBoxCox_forecasted_sold[i]<- round( InvBoxCox(forecasted$forecast, lambda = lambda),0)
-    }
-    
-}
-
-
-testprediction8 <- data.table("event_date" = test_dates,testlm_forecasted_sold,testsqrt_forecasted_sold,testBoxCox_forecasted_sold)
-
-for(i in 2:length(testprediction8)){
-  
-  print(accu(test8$sold_count,testprediction8[,..i],colnames(testprediction8[,..i])))
-}
-
-
-ggplot() + geom_line(data = product8[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = testprediction8,aes( x = event_date,y =testsqrt_forecasted_sold, color = "Sqrt"))+ 
-   geom_line(data = testprediction8,aes( x = event_date,y =testlm_forecasted_sold, color = "No Transformation")) +   
-    geom_line(data = testprediction8,aes( x = event_date,y =testBoxCox_forecasted_sold, color = "BoxCox")) 
- # geom_line(data = testprediction8,aes( x = event_date,y =combine1, color = "Combine1"))
-
-
-
-
-
-
-```
-
-
-
-```{r}
-
-
-
-#my_data <- product8[, 4:13]
-#chart.Correlation(my_data, pch=19)
-
-
-xreg8 <- product8[ , c( "price","visit_count",  "basket_count","category_favored" )]
-xreg8 <- as.matrix(xreg8)
-
-add_arima=function(data,h,f){
- ts <- ts(data$sold_count,frequency =f )
- add <- decompose(ts, type = "add") 
- fitted <- auto.arima(add$random, seasonal= FALSE)
- seasonal <- add$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
- trend <- tail(add$trend[!is.na(add$trend)],1)
- forecastted <- as.numeric(forecast(fitted,h)$mean) + seasonal + trend
- return(forecastted)
-}
-
-xreg_add_arima=function(data,h,f, xreg){
- ts <- ts(data$sold_count,frequency =f )
- add <- decompose(ts, type = "add") 
- train_xreg<- xreg[1:length(data$event_date)]
- for_xreg <- xreg[(length(data$event_date))]
- fitted <- auto.arima(add$random, seasonal= FALSE, xreg = train_xreg)
- seasonal <- add$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
- trend <- tail(add$trend[!is.na(add$trend)],1)
- forecastted <- as.numeric(forecast(fitted,h,xreg = for_xreg)$mean) + seasonal + trend
- return(forecastted)
-}
-
-
-
-
-
-mul_arima=function(data,h,f){
- 
- ts <- ts(data$sold_count,frequency =f )
- mul <- decompose(ts, type = "mul") 
- fitted <- auto.arima(mul$random, seasonal= FALSE)
- seasonal <- mul$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
- trend <- tail(mul$trend[!is.na(mul$trend)],1)
- forecasted <- as.numeric(forecast(fitted,h)$mean)*seasonal*trend
- return(forecasted)
-}
-
-xreg_mul_arima=function(data,h,f, xreg){
- ts <- ts(data$sold_count,frequency =f )
- mul <- decompose(ts, type = "mul") 
- train_xreg<- xreg[1:length(data$event_date)]
- for_xreg <- xreg[(length(data$event_date)) ]
- fitted <- auto.arima(mul$random, seasonal= FALSE, xreg = train_xreg)
- seasonal <- mul$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
- trend <- tail(mul$trend[!is.na(mul$trend)],1)
- forecastted <- as.numeric(forecast(fitted,h,xreg = for_xreg)$mean)*seasonal*trend
- return(forecastted)
-}
-
-
-testprediction8[, add_arima_forecasted := 0]
-testprediction8[ , mul_arima_forecasted := 0]
-testprediction8[, reg_add_arima_forecasted := 0]
-testprediction8[ ,reg_mul_arima_forecasted := 0]
-
-for(i in 1:length(test_dates)){
-    current_date=test_dates[i]-forecast_ahead
-    past_data=product8[event_date<=current_date]
-    forecast_data=product8[event_date==test_dates[i]]
-    
-    
-    testprediction8$add_arima_forecasted[i] <- round(add_arima(past_data,1,7),0)
-    testprediction8$reg_add_arima_forecasted[i] <- round(xreg_add_arima(past_data,1,7,xreg8),0)
-    testprediction8$mul_arima_forecasted[i] <- round( mul_arima(past_data,1,7),0)
-    testprediction8$reg_mul_arima_forecasted[i] <- round( xreg_mul_arima(past_data,1,7,xreg8),0)
-}
-
-#testprediction8 [ ,combine2 := (3*testlm_forecasted_sold+5*testsqrt_forecasted_sold + 1*reg_mul_arima_forecasted)/9]
-
-
-ggplot() + geom_line(data = product8[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = testprediction8,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
-   geom_line(data = testprediction8,aes( x = event_date,y =mul_arima_forecasted, color = "mul_arima_forecasted")) +
-   geom_line(data = testprediction8,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
-   geom_line(data = testprediction8,aes( x = event_date,y =reg_mul_arima_forecasted , color = "reg_mul_arima_forecasted"))
- # geom_line(data = testprediction8,aes( x = event_date,y =combine2 , color = "combine2"))
-  
-
-  
-  
-
-testprediction8[,actual:= product8[event_date %in% test_dates]$sold_count]
-
-
-
-#melted_result=melt(testprediction8,c('event_date','actual'))
-
-error8 =  data.table()
-
-for(i in 2:(length(testprediction8))){
-  
-
-  error8 <- rbind(error8, accu(test8$sold_count,testprediction8[,..i],colnames(testprediction8[,..i])))
-}
-
-
-
-## forcast next day
-
-xreg <- as.matrix( nextday[ , c( "price","visit_count",  "basket_count","category_favored")])
-
-
-
-add_arima(product8,1,8)
-mul_arima(product8,1,8)
-xreg_mul_arima(product8,1,8, xreg8)
-xreg_add_arima(product8,1,8, xreg8)
-forecast_lm8(product8,nextday)$forecast
-InvBoxCox(forecast_BoxCox8(product8,nextday)$forecast, lambda = lambda)
-(forecast_lm8_sqrt(product8,nextday)$forecast)^2
-
-
-```
-
-
-```{r}
-
-
-
-product9 <- products[[9]]
-
-
-summary(product9)
-
-
-product9[is.na(price)]$price <- mean(product9[(!is.na(price)) & (price>= 0) ]$price)
-product9[price<=0]$price <- mean(product9[!is.na(price)]$price)
-
-
-
-product9[,trend := 1:.N]
-
-product9[ty_visits==1, ty_visits:= mean(ty_visits)]
-product9 [, lag1:= shift(sold_count,1)]
-product9[is.na(lag1), lag1 := 0]
-product9 [, lag2:= shift(sold_count,2)]
-product9[is.na(lag2), lag2 := mean(sold_count[1]) ]
-product9 [, lag3:= shift(sold_count,3)]
-product9[is.na(lag3), lag3 := mean(sold_count[1:2]) ]
-product9 [, lag7:= shift(sold_count,7)]
-product9[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
-
-
-
-
-
-product9[, sqrt:= sqrt(sold_count)]
-lambda <- BoxCox.lambda(product9$sold_count)
-product9[, BoxCox := BoxCox(sold_count,lambda = lambda)]
-
-test_dates <- tail(product9,15)$event_date
-nextday <- tail(product9,1)
-train9 <-  product9[!(event_date %in% test_dates)]
-test_dates <- test_dates[1:14]
-test9 <- product9[event_date %in% test_dates][1:14]
-
-
-
-forecast_ahead <- 1
-
-
-autoplot(ts(product9$sold_count))
-lm9 <- lm( sold_count ~ price  +  visit_count    +  basket_count  + favored_count + category_sold + category_visits + category_basket + category_favored + category_brand_sold  + factor(w_day)  + factor(mon) + trend  +   lag1 +  lag3   ,product9[4:.N] )
-summary(lm9)
-checkresiduals(lm9)
-
-
-
-autoplot(ts(product9$sqrt))
-sqrt_lm <- lm(sqrt~ price  +  visit_count    +  basket_count  + favored_count + category_sold + category_visits + category_basket + category_favored + category_brand_sold + ty_visits + factor(w_day)  + factor(mon)  +   lag1 +  lag3     , product9[4:.N] )
-summary(sqrt_lm)
-checkresiduals(sqrt_lm)
-
-
-autoplot(ts(product9$BoxCox))
-BoxCox_lm <- lm(BoxCox~price  +  visit_count    +  basket_count  + favored_count  + category_visits + category_basket  + ty_visits + factor(w_day)  + factor(mon)  +   lag1 +  lag3            
-                , product9[4:.N] )
-summary(BoxCox_lm)
-checkresiduals(BoxCox_lm)
-
-
-autoplot(ts(product9$sold_count))
-lm9 <- lm( sold_count ~ price  +  visit_count    +  basket_count  + favored_count + category_sold + category_visits + category_basket + category_favored + category_brand_sold  + factor(w_day)  + factor(mon) + trend  +   lag1 +  lag3  + factor(is_campaign), train9)
-summary(lm9)
-checkresiduals(lm9)
-
-plot(train9$sold_count, lm9$fitted)
-ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count), color = "blue") + geom_line( aes( x = train9$event_date,y = lm9$fitted), color = "red")
-
-autoplot(ts(product9$sqrt))
-sqrt_lm9 <- lm(sqrt ~  price  +  visit_count    +  basket_count  + favored_count + category_sold + category_visits + category_basket + category_favored + category_brand_sold + ty_visits + factor(w_day)  + factor(mon)  +   lag1 +  lag3 + factor(is_campaign), data = train9)
-summary(sqrt_lm9)
-checkresiduals(sqrt_lm9)
-
-plot(train9$sold_count, (sqrt_lm9$fitted)^2)
-ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count), color = "blue") + geom_line( aes( x = train9$event_date,y = (sqrt_lm9$fitted)^2), color = "red")
-
-
-
-autoplot(ts(product9$BoxCox))
-BoxCox_lm9 <- lm(BoxCox~ price  +  visit_count    +  basket_count  + favored_count  + category_visits + category_basket  + ty_visits + factor(w_day)  + factor(mon)  + factor(is_campaign)+   lag1 +  lag3 ,train9)
-summary(BoxCox_lm9)
-checkresiduals(BoxCox_lm9)
-
-plot(train9$sold_count, InvBoxCox(BoxCox_lm9$fitted, lambda = lambda))
-ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count), color = "blue") +
-  geom_line( aes( x = train9$event_date,y = InvBoxCox(BoxCox_lm9$fitted, lambda = lambda)), color = "red")
+# product 9 
 
 forecast_lm9=function(data,forecast_data){
     fitted_lm=lm( sold_count ~ price  + basket_count  + category_sold  + category_favored  + factor(w_day)  + factor(mon) + trend  +   lag1 +  lag3  + factor(is_campaign),data)
@@ -1045,101 +325,76 @@ forecast_BoxCox9=function(data,forecast_data){
 }
 
 
+forecast_lm9_arima <- function(data,forecast_data){
+ fitted_lm=lm( sold_count ~ price  + basket_count  + category_sold  + category_favored  + factor(w_day)  + factor(mon) + trend  +   lag1 +  lag3  + factor(is_campaign),data)
+#ur.kpss(residuals(fitted_lm))
+residuals= ts( residuals(fitted_lm), frequency = 7)
+fitted_arima <- auto.arima(residuals)
 
-
-sqrt_forecasted_sold<- c()
-BoxCox_forecasted_sold <- c()
-
-lm_forecasted_sold <- c()
-
-for(i in 1:length(test_dates)){
-  
-    current_date=test_dates[i]-forecast_ahead
-    past_data=product9[event_date<=current_date]
-    forecast_data=product9[event_date==test_dates[i]]
-    
-    forecasted=forecast_lm9_sqrt(past_data,forecast_data)
-    sqrt_forecasted_sold[i]<- (forecasted$forecast)^2
-    
-    
-    forecasted=forecast_lm9(past_data,forecast_data)
-    lm_forecasted_sold[i]<- forecasted$forecast
-    
-    forecasted=forecast_BoxCox9(past_data,forecast_data)
-    BoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
+forecasted <- predict(fitted_lm,forecast_data) + predict(fitted_arima, n.ahead = 1)$pred[1]
+return(forecasted)
 }
 
 
 
-prediction9 <- data.table("event_date" = test_dates,lm_forecasted_sold,sqrt_forecasted_sold,BoxCox_forecasted_sold)
-#prediction9[, combine1 := (3*lm_forecasted_sold+2*sqrt_forecasted_sold)/5]
+# common functions 
 
-for(i in 2:length(prediction9)){
-  
-  print(accu(test9$sold_count,prediction9[,..i],colnames(prediction9[,..i])))
+
+accu=function(actual,forecast,model){
+  model = model
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.frame(model,n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
 }
 
 
 
-ggplot() + geom_line(data = product9[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = prediction9,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
-   geom_line(data = prediction9,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
-  geom_line(data = prediction9,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) 
-  #geom_line(data = prediction9,aes( x = event_date,y =combine1, color = "Combine1"))
-  
-  
 
-
-
-
-
-temp <- tail(product9[,c(1,5,6,7,8,9,10,11,12,13)],15)
-
-test9[,c(1,5,6,7,8,9,10,11,12,13)] <- temp[1:14]
-
-
-
-
-
-testsqrt_forecasted_sold<- c()
-testBoxCox_forecasted_sold <- c()
-testlm_forecasted_sold <- c()
-
-for(i in 1:length(test_dates)){
-    current_date=test_dates[i]-forecast_ahead
-    past_data=product9[event_date<=current_date]
-    forecast_data=test9[i]
+graph1 <- function(i){
     
-    forecasted=forecast_lm9_sqrt(past_data,forecast_data)
-    testsqrt_forecasted_sold[i]<- forecasted$forecast^2
-    
-    forecasted=forecast_BoxCox9(past_data,forecast_data)
-    testBoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
-    
-    forecasted=forecast_lm9(past_data,forecast_data)
-    testlm_forecasted_sold[i]<- forecasted$forecast
+g1 <-ggplot(products[[i]], aes( x = event_date, y = sold_count)) + geom_line() + ggtitle(paste("product",i)) +theme_minimal()  
+g2 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(w_day))) + geom_boxplot() + 
+  ggtitle(paste("product",i))+ theme_minimal() 
+g3 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(mon))) + geom_boxplot()+
+      ggtitle(paste("product",i))+ theme_minimal() 
+g4 <- ggplot(products[[i]], aes( x = sold_count)) + geom_histogram() + ggtitle(paste("product",i)) + theme_minimal()+
+        facet_wrap(~factor(w_day))
+g5 <-ggplot(products[[i]], aes( x = sold_count )) + geom_histogram() + theme_minimal()+ ggtitle(paste("product",i))+
+      facet_wrap(~factor(mon))
+
+print(g1)
+
+grid.arrange(
+  g2,g4,g3,g5,
+  ncol = 2
+
+)
+
+ACF <- acf( products[[i]]$sold_count, plot = FALSE)
+plot(ACF, main = paste("ACF OF Product",i))
+PACF <- pacf( products[[i]]$sold_count, plot = FALSE)
+plot(PACF, main = paste("PACF OF Product",i))
 }
 
 
-testprediction9 <- data.table("event_date" = test_dates,testlm_forecasted_sold,testsqrt_forecasted_sold,testBoxCox_forecasted_sold)
+corr_graph <- function(data){
+  df1 <- data[, c(4,1,5,6,7,11)]
+  df2 <- data[, c(4,8:10,12,13)]
+chart.Correlation(df1, pch=19)
+chart.Correlation(df2, pch=19)
 
-for(i in 2:length(testprediction9)){
-  
-  print(accu(test9$sold_count,testprediction9[,..i],colnames(testprediction9[,..i])))
 }
 
-
-ggplot() + geom_line(data = product9[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = testprediction9,aes( x = event_date,y =testsqrt_forecasted_sold, color = "Sqrt"))+ 
-   geom_line(data = testprediction9,aes( x = event_date,y =testlm_forecasted_sold, color = "No Transformation")) + 
-  geom_line(data = testprediction9,aes( x = event_date,y =testBoxCox_forecasted_sold, color = "BoxCox")) 
- # geom_line(data = testprediction9,aes( x = event_date,y =combine1, color = "Combine1"))
-
-
-
-
-xreg9 <- product9[ , c( "price","category_sold",  "basket_count","category_favored" )]
-xreg9 <- as.matrix(xreg9)
 
 add_arima=function(data,h,f){
  ts <- ts(data$sold_count,frequency =f )
@@ -1162,8 +417,6 @@ xreg_add_arima=function(data,h,f, xreg){
  forecastted <- as.numeric(forecast(fitted,h,xreg = for_xreg)$mean) + seasonal + trend
  return(forecastted)
 }
-
-
 
 
 
@@ -1191,78 +444,1162 @@ xreg_mul_arima=function(data,h,f, xreg){
 }
 
 
-testprediction9[, add_arima_forecasted := 0]
-testprediction9[ , mul_arima_forecasted := 0]
-testprediction9[, reg_add_arima_forecasted := 0]
-testprediction9[ ,reg_mul_arima_forecasted := 0]
+```
+
+
+### Product 7 
+
+**Oral-B Rechargeable ToothBrush**
+
+First of all, the general behaviour of data is examined during the day by time plot. 
+
+Secocondly, the distribution in days and months is plotted to see if it is changed depend on month and day. 
+
+Finally , by ACF and PACF graph, the relationship between previous observations is observed. 
+
+```{r}
+product7 <- products[[7]]
+graph1(7)
+
+```
+
+It can be say that, there is a trend in data, and if trend factor is excluded, the autocorrelation between lag1, lag3 and lag is significant. 
+
+The data is depend on month and day factor by observing boxplot of data. Since the day factor is significant, day factor will be used in model construction instead of lag7 and the frequency of data determined as 7. 
+
+
+**Examination of Attributes**
+
+The some of the attributes of data is not reliable, therefore, it is examined by summary of data.
+
+```{r}
+
+summary(product7)
+
+df <- product7[,c(1,4:14)]
+do.call("cbind",lapply(df,function(x) boxplot.stats(x)$stats))
+
+
+
+product7[is.na(price)]$price <- mean(product7[!is.na(price)]$price)
+product7[,trend := 1:.N]
+product7[ty_visits==1, ty_visits:= mean(ty_visits)]
+product7[category_favored==0, category_favored:= mean(category_favored)]
+product7[category_visits==0, category_visits:= mean(category_visits)]
+
+
+corr_graph(product7)
+```
+
+
+
+
+The relationship of attributes and response variable is observed by correlation grapgh. 
+
+Basket_count, category_visits and category_favored has high correlation and it seems reliable data from summary of data.However, there is 0 values which is not expected in real life therefore, the zero values are changed as mean. 
+
+ty_visits also has 1 value before particular date and it is changed as mean of ty_visits. 
+
+Some price values are NA, and they are changed as mean of price since price is not has significant changes during the time. 
+
+In the end, "price","visit_count",  "basket_count","category_favored" , "ty_visits","is_campaign" values determined as regressors. 
+
+
+```{r}
+
+xreg7 <- product7[ , c( "price","visit_count",  "basket_count","category_favored" , "ty_visits","is_campaign")]
+xreg7 <- as.matrix(xreg7)
+
+```
+
+
+
+
+```{r}
+
+product7 [, lag1:= shift(sold_count,1)]
+product7[is.na(lag1), lag1 := 0]
+product7 [, lag2:= shift(sold_count,2)]
+product7[is.na(lag2), lag2 := mean(sold_count[1]) ]
+product7 [, lag3:= shift(sold_count,3)]
+product7[is.na(lag3), lag3 := mean(sold_count[1:2]) ]
+product7 [, lag7:= shift(sold_count,7)]
+product7[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
+
+
+
+product7[, sqrt:= sqrt(sold_count)]
+lambda <- BoxCox.lambda(product7$sold_count)
+product7[, BoxCox := BoxCox(sold_count,lambda = lambda)]
+
+test_dates <- tail(product7,15)$event_date
+nextday <- tail(product7,1)
+train7 <-  product7[!(event_date %in% test_dates)]
+test_dates <- test_dates[1:14]
+test7 <- product7[event_date %in% test_dates][1:14]
+
+forecast_ahead <- 1
+```
+
+the data will be predicted based on previous observations attributes since the real attributes not available for prediction time. 
+
+
+
+**model construction** 
+
+the data has no constant variance therefore, besides the simple linear model, the sqrt transformation and boxcox tranformation is used for simple regression model
+
+
+**simple linear regression with no transformation** 
+By many iterations, it is seen that day factor is not significant as is expected. 
+
+```{r}
+autoplot(ts(product7$sold_count))
+lm7 <- lm( sold_count ~ price  + visit_count + basket_count + category_basket  + factor(mon) +  factor(is_campaign) + trend + lag1 + lag3 , train7)
+summary(lm7)
+checkresiduals(lm7)
+
+plot(train7$sold_count, lm7$fitted)
+ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count,color = "Actual")) + geom_line( aes( x = train7$event_date,y = lm7$fitted,color = "Fitted")) + labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model"
+) + theme_minimal()
+```
+
+the residuals analysis is good for lm model with no significant autocorrelation around mean zero, however, the variablity of error in higher values is higher. 
+
+
+**simple linear regression with sqrt() transformation** 
+
+By many iterations, the 
+
+```{r}
+autoplot(ts(product7$sqrt))
+sqrt_lm7 <- lm(sqrt~  price  + visit_count  + basket_count + ty_visits  + factor(mon)  + lag1  + factor(is_campaign) + category_visits + category_basket , train7 )
+summary(sqrt_lm7)
+checkresiduals(sqrt_lm7)
+
+ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train7$event_date,y = (sqrt_lm7$fitted)^2, color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with sqrt() transformation"
+) + theme_minimal()
+```
+the residuals analysis is  model with  significant autocorrelation in lag1 around mean zero, however, the variablity of error in higher values is higher. It is poor by comparing lm model with no transformation. 
+
+
+
+
+**simple linear regression with BoxCox transformation** 
+
+
+By many iterations, it is seen that day factornot significant but lag7 is significant and lag3 factor is not significant for boxcox linear model therefore, they excluded and the category_basket is significant for boxcox transformation. 
+
+```{r}
+
+BoxCox_lm7 <- lm(BoxCox~ price + visit_count  + basket_count + category_favored + ty_visits  + factor(mon) + lag1 + lag7 + factor(is_campaign)  + category_basket , train7)
+summary(BoxCox_lm7)
+autoplot(ts(product7$BoxCox))
+checkresiduals(BoxCox_lm7)
+
+
+ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train7$event_date,y = InvBoxCox(BoxCox_lm7$fitted, lambda = lambda), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with BoxCox transformation"
+) + theme_minimal()
+
+
+```
+
+By residuals analysis, boxcox model has big deviation in time and adjusted R-squared value is lower than others. 
+
+
+
+**Arima Models** 
+
+When arima models is constructed, the auto.arima function is used, and in every day the auto.arima function is runs again. 
+the seasonality is TRUE, and frequency is determined as seven by observing ACF and PACF graph. 
+
+Additive Model, Multplive Model, and linear regression model is used for decomposition and get stationary data. 
+
+```{r}
+print("The Additive Model")
+decomposed <- decompose(ts(product7$sold_count,frequency= 7))
+ur.kpss(decomposed$random)
+
+print("The Multiplicative Model")
+ur.kpss(decompose(ts(product7$sold_count,frequency= 7), type="mul")$random)
+
+print("Linear Regression")
+residuals <- residuals(lm7)
+ur.kpss(residuals)
+
+decomposed <- decompose(ts(train7$sold_count,frequency= 7))
+``` 
+the multiplive model is not significant, therefore I will use the addtive decomposition for arima and arima regressors models.
+
+the linear regression model residuals are stationary therefore, the residuals use for arima model and they combined in the end. 
+
+the regressors mentioned above is used for arima model with regressors. 
+
+
+
+```{r}
+acf(decomposed$random, lag = 14, na.action = na.pass)
+pacf(decomposed$random, lag = 14, na.action = na.pass)
+arima <- auto.arima(decomposed$random) 
+arima
+
+checkresiduals(arima)
+
+ pred <- arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train7[1:length(pred)]$event_date, y= train7[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train7[1:length(pred)]$event_date, y= pred, color= "Predicted")) + labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for arima(0,0,1)(0,0,2)[7]"
+ ) + theme_minimal()
+```
+By observing, pacf is significant at lag1 and acf drops after lag1 therfore, it is reasonable auto.arima gives the MA(1). 
+And at lag2 as seasonal the pacf and acf is significant, the seasonal order(0,0,2) is reasonable, too. 
+
+```{r}
+
+reg_arima <- auto.arima(decomposed$random, xreg = xreg7[1:(length(decomposed$random))]) 
+reg_arima
+
+checkresiduals(reg_arima)
+AIC(reg_arima)
+
+ pred <- reg_arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train7[1:length(pred)]$event_date, y= train7[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train7[1:length(pred)]$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for arima model with regressors"
+ ) + theme_minimal()
+
+
+```
+By residual analysis, the arima with regressors has no autocorrelated residuals and lower AIC, therefore arima with regressors is better model than arima. 
+
+**Arima combined with linear Regression**
+
+```{r}
+acf(residuals)
+pacf(residuals)
+lm_arima <- auto.arima(residuals)
+lm_arima
+checkresiduals(lm_arima)
+
+ pred <- lm_arima$fitted + lm7$fitted.values
+ 
+ 
+ ggplot() + geom_line(aes( x= train7$event_date, y= train7$sold_count, color= "Actual")) + geom_line(aes( x= train7$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for linear model and arima combination"
+ )  + theme_minimal()
+
+```
+the auto arima model on residuals give zero mean and no autocorrelated residuals and lower AIC valu, it is better than arima and arima regressor model by residual analysis. 
+
+
+
+
+**Predictions**
+
+The predictions based on the last available attributes, and the predictions plotted with actual sales values. 
+
+```{r}
+
+
+
+prediction7 <- data.table("event_date" = test_dates,"actual"= product7[event_date %in% test_dates]$sold_count, "sqrt_forecasted_sold"= c(1:length(test_dates)), "BoxCox_forecasted_sold"= c(1:length(test_dates)), "lm_forecasted_sold"= c(1:length(test_dates)), "forecasted_lm7_arima"= c(1:length(test_dates)) )
+
+
+prediction7[, add_arima_forecasted := 0]
+
+prediction7[, reg_add_arima_forecasted := 0]
+
+
+
+
+
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    past_data=product7[event_date<=current_date]
+    forecast_data=product7[event_date==test_dates[i]]
+    
+    forecasted=forecast_lm7_sqrt(past_data,forecast_data)
+    prediction7$sqrt_forecasted_sold[i]<- forecasted$forecast^2
+    
+    forecasted=forecast_BoxCox7(past_data,forecast_data)
+    prediction7$BoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
+    
+    forecasted=forecast_lm7(past_data,forecast_data)
+    prediction7$lm_forecasted_sold[i]<- forecasted$forecast
+    
+    prediction7$forecasted_lm7_arima[i] <- forecast_lm7_arima(past_data,forecast_data)
+    
+    
+    prediction7$add_arima_forecasted[i] <- add_arima(past_data,1,7)
+    prediction7$reg_add_arima_forecasted[i] <- xreg_add_arima(past_data,1,7,xreg7)
+   
+}
+
+prediction7
+
+  
+
+```
+```{r}
+
+ggplot() + geom_line(data = product7[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
+  geom_line(data = prediction7,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
+   geom_line(data = prediction7,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
+   geom_line(data = prediction7,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) +
+   geom_line(data = prediction7,aes( x = event_date,y =forecasted_lm7_arima, color = " lm_arima")) +
+   geom_line(data = prediction7,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
+
+   geom_line(data = prediction7,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
+  
+  labs(
+    x= "time",
+    y= "sales",
+    main= "Predictions vs. Actual Values"
+  ) + 
+  theme_minimal()
+```
+
+
+**EROR rate of Models**
+
+```{r}
+  
+error7 =  data.table()
+
+for(i in 3:(length(prediction7))){
+  
+
+  error7 <- rbind(error7, accu(test7$sold_count,prediction7[,..i],colnames(prediction7[,..i])))
+}
+
+
+error7
+
+
+```
+
+Since the arima model combined model has the lowest WMAPE value it is selected for prediction. 
+However, 
+In every day, the error rates are calculated for last 14 days and the model predictions and the model prediction has the lowest  WMAPE value of is selected.
+
+
+
+**Predictions of Next Day** 
+
+
+
+```{r}
+
+nextday_pred <-c(
+
+"add_arima" = add_arima(product7,1,7),
+"xreg_add_arima" = xreg_add_arima(product7,1,7, xreg7),
+"forecast_lm" =forecast_lm7(product7,nextday)$forecast,
+"forecast_lm_arima" = forecast_lm7_arima(product7,nextday)[1],
+"BoxCox_lm" = InvBoxCox(forecast_BoxCox7(product7,nextday)$forecast, lambda = lambda),
+"Sqrt_lm" = round((forecast_lm7_sqrt(product7,nextday)$forecast)^2)
+
+
+)
+
+
+nextday_pred
+
+```
+
+
+### Product 8 
+
+**Altinyildiz Classics Jacket**
+
+```{r}
+product8 <- products[[8]]
+graph1(8)
+```
+
+It can be seen that the sales is zero most of time, however, there is huge increase in October. 
+
+The ACF and PACF of data shows that there is significant autocorrelation in lag1 and lag7. 
+
+
+
+**the Examination of Attirubutes**
+
+the correlation of price, visit_count, and basket_count is high and it is expected if the sold_count is zero this variables can be zero. 
+
+However, it is not expected that category favored and trendyol visits is zero or one therefore these variables changed as mean. 
+
+```{r}
+
+
+summary(product8)
+
+df <- product8[,c(1,4:14)]
+do.call("cbind",lapply(df,function(x) boxplot.stats(x)$stats))
+
+corr_graph(product8)
+
+product8[is.na(price)]$price <- mean(product7[!is.na(price)]$price)
+product8[,trend :=1:.N]
+product8[ty_visits ==1 , ty_visits:= round(mean(product8$ty_visits))]
+product8[category_basket==0,  category_basket:= round(mean(product8$category_basket))]
+product8[category_basket > 469103  ,  category_basket:= round(mean(product8$category_basket))]
+
+
+```
+
+By considering correlation and variable relaibility the "price","visit_count",  "basket_count","category_favored"  are selected as regressors. 
+
+```{r}
+
+xreg8 <- product8[ , c( "price","visit_count",  "basket_count","category_favored" )]
+xreg8 <- as.matrix(xreg8)
+```
+
+
+
+The acf and pacf garph is shows high correlation in lag1,lag2,lag5 and lag7 therefore they are added as attirbutes. 
+
+```{r}
+
+product8 [, lag1:= shift(sold_count,1)]
+product8[is.na(lag1), lag1 := 0]
+product8 [, lag2:= shift(sold_count,2)]
+product8[is.na(lag2), lag2 := mean(sold_count[1]) ]
+product8 [, lag5:= shift(sold_count,5)]
+product8[is.na(lag5), lag5 := mean(sold_count[1:4]) ]
+product8 [, lag7:= shift(sold_count,7)]
+product8[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
+```
+
+
+Since Jacket is expensive product, it is expected that consumers consider the previous price of jacket. Therefore, previous prices of Jacket is examined. 
+
+```{r}
+product8[ , price_lag_4 := shift(price,4)]
+product8[ , price_lag_5 := shift(price,5)]
+product8[ , price_lag_6 := shift(price,6)]
+product8[ , price_lag_1 := shift(price,1)]
+product8[is.na(price_lag_4), price_lag_4:= mean(price) ]
+product8[is.na(price_lag_5), price_lag_5:= mean(price) ]
+product8[is.na(price_lag_6), price_lag_6:= mean(price) ]
+product8[is.na(price_lag_1), price_lag_1:= mean(price) ]
+
+corr <- product8[, c("sold_count","price", "price_lag_1","price_lag_4","price_lag_5", "price_lag_6")]
+corrplot(cor(corr), method="color",  
+         type="upper", order="hclust", 
+         addCoef.col = "black",
+         tl.col="black", tl.srt=45, 
+         
+         diag=FALSE 
+         )
+```
+
+
+the data will be predicted based on previous observations attributes since the real attributes not available for prediction time. 
+
+
+
+**model construction** 
+
+the data has no constant variance therefore, besides the simple linear model, the sqrt transformation and boxcox tranformation is used for simple regression model
+
+```{r}
+
+product8[, sqrt:= sqrt(sold_count)]
+lambda <- BoxCox.lambda(product8$sold_count)
+product8[, BoxCox := BoxCox(sold_count,lambda = lambda)]
+
+test_dates <- tail(product8,15)$event_date
+nextday <- tail(product8,1)
+train8 <-  product8[!(event_date %in% test_dates)]
+test_dates <- test_dates[1:14]
+test8 <- product8[event_date %in% test_dates][1:14]
+
+
+forecast_ahead <- 1
+```
+
+**Simple Regression**
+
+By many iterations, it is seen that most significant variables are price, visit_count, basket_count, category_favored,factor( w_day ), factor(mon),lag1,lag2,price_lag_4. 
+
+
+
+```{r}
+autoplot(ts(product8$sold_count))
+lm8 <- lm( sold_count ~ price +   visit_count + basket_count + category_favored  +  factor( w_day )  + factor(mon)  + lag1 + lag2  + price_lag_4, train8)
+summary(lm8)
+checkresiduals(lm8)
+
+
+ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train8$event_date,y = (lm8$fitted), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with no transformation"
+) + theme_minimal()
+```
+**Simple Linear Regression with sqrt() transformation**
+
+By many iteration, it is seen that the plag_4 and lag_2 is not significant for sqrt transformation model, lag5 is significant.  
+
+```{r}
+
+autoplot(ts(product8$sqrt))
+sqrt_lm8 <- lm(sqrt ~ price + visit_count  + basket_count +  category_favored + factor(w_day) + factor(mon) + lag1 +lag5, data = train8)
+summary(sqrt_lm8)
+checkresiduals(sqrt_lm8)
+ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train8$event_date,y = (sqrt_lm8$fitted)^2, color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with sqrt transformation"
+) + theme_minimal()
+
+
+```
+ In residual analysis there is no significant difference, and adjusted R-square value of squared transformation is higher.
+
+
+**Simple Linear Regression Model with BoxCox Transformation**
+By many iteration, price, visit_count, basket_count, category_favored, factor( w_day ), factor(mon), lag1 are most significant variables for Simple Linear Regression Model with BoxCox Transformation. 
+
+
+
+```{r}
+autoplot(ts(product8$BoxCox))
+BoxCox_lm8 <- lm(BoxCox~ price + visit_count  +  basket_count  + category_favored + factor( w_day ) + factor(mon) + lag1,train8)
+summary(BoxCox_lm8)
+checkresiduals(BoxCox_lm8)
+
+ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train8$event_date,y = InvBoxCox(BoxCox_lm8$fitted.values,lambda), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with sqrt transformation"
+) + theme_minimal()
+
+
+
+```
+In residual analysis and adjusted R-squared comparison BoxCox is better than others, however, it is very sensitive to back transformation, therefore, maybe predictions can be poor. 
+
+
+**Arima Models** 
+
+When arima models is constructed, the auto.arima function is used, and in every day the auto.arima function is runs again. 
+the seasonality is TRUE, and frequency is determined as seven by observing ACF and PACF graph. 
+
+Additive Model, Multplive Model, and linear regression model is used for decomposition and get stationary data. 
+
+```{r}
+print("The Additive Model")
+decomposed <- decompose(ts(product8$sold_count,frequency= 7))
+ur.kpss(decomposed$random)
+
+print("The Multiplicative Model")
+ur.kpss(decompose(ts(product8$sold_count,frequency= 7), type="mul")$random)
+
+print("Linear Regression")
+residuals <- residuals(lm8)
+ur.kpss(residuals)
+
+decomposed <- decompose(ts(train8$sold_count,frequency= 7))
+``` 
+
+the multiplive model is significant at alpha level = .10, therefore I will use the addtive decomposition for arima and arima regressors models.
+
+the linear regression model residuals are stationary therefore, the residuals use for arima model and they combined in the end. 
+
+the regressors mentioned above is used for arima model with regressors. 
+
+**Arima**
+
+```{r}
+acf(decomposed$random, lag = 14, na.action = na.pass)
+pacf(decomposed$random, lag = 14, na.action = na.pass)
+arima <- auto.arima(decomposed$random) 
+arima
+
+checkresiduals(arima)
+
+ pred <- arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train8[1:length(pred)]$event_date, y= train8[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train8[1:length(pred)]$event_date, y= pred, color= "Predicted")) + labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted by Arima combined with Linear Regression"
+ ) + theme_minimal()
+```
+
+
+
+
+**Arima with Regressor**
+
+```{r}
+reg_arima <- auto.arima(decomposed$random, xreg = xreg8[1:(length(decomposed$random))]) 
+reg_arima
+
+checkresiduals(reg_arima)
+
+
+ pred <- reg_arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train8[1:length(pred)]$event_date, y= train8[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train8[1:length(pred)]$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for arima model with regressors"
+ ) + theme_minimal()
+```
+
+**Arima combined with linear Regression**
+
+```{r}
+
+acf(residuals)
+pacf(residuals)
+lm_arima <- auto.arima(residuals)
+lm_arima
+checkresiduals(lm_arima)
+
+ pred <- lm_arima$fitted + lm8$fitted.values
+ 
+ 
+ ggplot() + geom_line(aes( x= train8$event_date, y= train8$sold_count, color= "Actual")) + geom_line(aes( x= train8$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for linear model and arima combination"
+ )  + theme_minimal()
+
+```
+
+
+
+
+**Predictions**
+
+The all models are used to predict include mul_arima and reg_mul_arima since they significant at alpha = 0.10. 
+
+```{r}
+
+prediction8 <- data.table("event_date" = test_dates,"actual"= product8[event_date %in% test_dates]$sold_count, "sqrt_forecasted_sold"= c(1:length(test_dates)), "BoxCox_forecasted_sold"= c(1:length(test_dates)), "lm_forecasted_sold"= c(1:length(test_dates)), "forecasted_lm8_arima"= c(1:length(test_dates)) )
+
+
+prediction8[, add_arima_forecasted := 0]
+prediction8[ , mul_arima_forecasted := 0]
+prediction8[, reg_add_arima_forecasted := 0]
+prediction8[ ,reg_mul_arima_forecasted := 0]
+
+
+
+
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    past_data=product8[event_date<=current_date]
+    forecast_data=product8[event_date==test_dates[i]]
+    
+    forecasted=forecast_lm8_sqrt(past_data,forecast_data)
+    prediction8$sqrt_forecasted_sold[i]<- round(forecasted$forecast^2)
+    
+    forecasted=forecast_BoxCox8(past_data,forecast_data)
+    prediction8$BoxCox_forecasted_sold[i]<- round(InvBoxCox(forecasted$forecast, lambda = lambda))
+    
+    forecasted=forecast_lm8(past_data,forecast_data)
+    prediction8$lm_forecasted_sold[i]<- round(forecasted$forecast)
+    
+    prediction8$forecasted_lm8_arima[i] <-round(forecast_lm8_arima(past_data,forecast_data))
+    
+    
+    prediction8$add_arima_forecasted[i] <- round(add_arima(past_data,1,7))
+    prediction8$reg_add_arima_forecasted[i] <- round(xreg_add_arima(past_data,1,7,xreg8))
+    prediction8$mul_arima_forecasted[i] <- round(mul_arima(past_data,1,7))
+    prediction8$reg_mul_arima_forecasted[i] <- round(xreg_mul_arima(past_data,1,7,xreg8))
+}
+
+prediction8
+
+
+  
+
+```
+
+```{r}
+
+ggplot() + geom_line(data = product8[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
+  geom_line(data = prediction8,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
+   geom_line(data = prediction8,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
+   geom_line(data = prediction8,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) +
+   geom_line(data = prediction8,aes( x = event_date,y =forecasted_lm8_arima, color = " lm_arima")) +
+   geom_line(data = prediction8,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
+   geom_line(data = prediction8,aes( x = event_date,y =mul_arima_forecasted, color = "mul_arima_forecasted")) +
+   geom_line(data = prediction8,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
+   geom_line(data = prediction8,aes( x = event_date,y =reg_mul_arima_forecasted , color = "reg_mul_arima_forecasted"))+
+   labs(
+    x= "time",
+    y= "sales",
+    main= "Predictions vs. Actual Values"
+  ) + 
+  theme_minimal()
+```
+
+
+
+
+**EROR rates**
+
+```{r}
+  
+error8 =  data.table()
+
+for(i in 3:(length(prediction8))){
+  
+
+  error8 <- rbind(error8, accu(test8$sold_count,prediction8[,..i],colnames(prediction8[,..i])))
+}
+
+
+error8
+
+```
+The error rates are very high, however the range of response variable too narrow, therefore, it is expected. 
+Like if the sales = 1 and the prediction is equal= 2 the error rate will be %100. 
+
+The mul_arima_forecasted has the lowest error rate. 
+
+
+**Next Day Prediction**
+In every day, the error rates are calculated for last 14 days and the model predictions and the model prediction has the lowest  WMAPE value of is selected.
+
+```{r}
+
+nextday_pred <-c(
+
+"add_arima" = add_arima(product8,1,7),
+"mul_arima" = mul_arima(product8,1,7),
+"xreg_mul_arima" = xreg_mul_arima(product8,1,7, xreg8),
+"xreg_add_arima" = xreg_add_arima(product8,1,7, xreg8),
+"forecast_lm" =forecast_lm8(product8,nextday)$forecast,
+"forecast_lm_arima" = forecast_lm8_arima(product8,nextday)[1],
+"BoxCox_lm" = InvBoxCox(forecast_BoxCox8(product8,nextday)$forecast, lambda = lambda),
+"Sqrt_lm" = round((forecast_lm8_sqrt(product8,nextday)$forecast)^2)
+
+
+)
+
+
+nextday_pred
+
+```
+
+
+### Product9 
+
+**TrendyolMilla Bikini Top**
+
+
+By observing the graph below, the month effect is clearly observable. It is expected since bikini is wore in hot seasons in Turkey. 
+Moreover, by examined the acf and pacf graph, it can be said that there is trend in data and correlation with lag1 and lag7. 
+
+```{r}
+product9 <- products[[9]]
+
+graph1(9)
+```
+
+
+the "price","category_sold",  "basket_count","category_favored" attributes are more relaible and significantly corralet with data. Even if the visit_count and favored_count is very high corraleted with data, they also corraleted with basket_count therefore they do not used in regressors. 
+
+```{r}
+summary(product9)
+
+
+
+product9[is.na(price)]$price <- mean(product9[(!is.na(price)) & (price>= 0) ]$price)
+product9[price<=0]$price <- mean(product9[!is.na(price)]$price)
+
+corr_graph(product9)
+
+
+xreg9 <- product9[ , c( "price","category_sold",  "basket_count","category_favored" )]
+xreg9 <- as.matrix(xreg9)
+
+```
+
+
+The trend, lag1,lag2,lag3, and lag7 variables are added data. 
+
+```{r}
+product9[,trend := 1:.N]
+
+product9[ty_visits==1, ty_visits:= mean(ty_visits)]
+product9 [, lag1:= shift(sold_count,1)]
+product9[is.na(lag1), lag1 := 0]
+product9 [, lag2:= shift(sold_count,2)]
+product9[is.na(lag2), lag2 := mean(sold_count[1]) ]
+product9 [, lag3:= shift(sold_count,3)]
+product9[is.na(lag3), lag3 := mean(sold_count[1:2]) ]
+product9 [, lag7:= shift(sold_count,7)]
+product9[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
+```
+
+
+**model construction** 
+
+the data has no constant variance therefore, besides the simple linear model, the sqrt transformation and boxcox tranformation is used for simple regression model
+
+```{r}
+
+product9[, sqrt:= sqrt(sold_count)]
+lambda <- BoxCox.lambda(product9$sold_count)
+product9[, BoxCox := BoxCox(sold_count,lambda = lambda)]
+
+test_dates <- tail(product9,15)$event_date
+nextday <- tail(product9,1)
+train9 <-  product9[!(event_date %in% test_dates)]
+test_dates <- test_dates[1:14]
+test9 <- product9[event_date %in% test_dates][1:14]
+
+
+
+forecast_ahead <- 1
+
+```
+
+
+In product9, attributes are reliable therefore the all attributes are tried to add model and most significance ones selected for the model .
+
+
+
+**simple linear regression with no transformation** 
+ 
+
+```{r}
+
+autoplot(ts(product9$sold_count))
+lm9 <- lm( sold_count ~ price  +  visit_count    +  basket_count  + favored_count + category_sold + category_visits + category_basket + category_favored + category_brand_sold  + factor(w_day)  + factor(mon) + trend  +   lag1 +  lag3   ,train9 )
+summary(lm9)
+checkresiduals(lm9)
+
+```
+
+The Adjusted R-squared value is very high and residuals seems to no autocorraled arround the mean zero. The model is a can be good fit. 
+
+
+```{r}
+
+ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train9$event_date,y = (lm9$fitted), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with no transformation"
+) + theme_minimal()
+```
+
+
+**Simple Linear Regression Model with sqrt transformation**
+
+
+```{r}
+autoplot(ts(product9$sqrt))
+sqrt_lm9 <- lm(sqrt~ price  +  visit_count    +  basket_count  + favored_count + category_sold + category_visits + category_basket + category_favored + category_brand_sold + ty_visits + factor(w_day)  + factor(mon)  +   lag1 +  lag3     , train9 )
+summary(sqrt_lm9)
+checkresiduals(sqrt_lm9)
+```
+The sqrt tranformation is also good fit model by R-squared value and residual analysis, However, it has lower R-squared value than no transformation model. 
+
+```{r}
+
+ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train9$event_date,y = (sqrt_lm9$fitted)^2, color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with sqrt() transformation"
+) + theme_minimal()
+```
+
+**BoxCox Transformation**
+
+```{r}
+
+autoplot(ts(product9$BoxCox))
+BoxCox_lm9 <- lm(BoxCox~price  +  visit_count    +  basket_count  + favored_count  + category_visits + category_basket  + ty_visits + factor(w_day)  + factor(mon)  +   lag1 +  lag3            
+                , train9)
+summary(BoxCox_lm9)
+checkresiduals(BoxCox_lm9)
+
+```
+
+BoxCox transformation is also can be good fit model since the adjusted R-square value high. 
+
+
+```{r}
+ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train9$event_date,y = InvBoxCox(BoxCox_lm9$fitted.values,lambda), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with BoxCox transformation"
+) + theme_minimal()
+
+
+```
+
+
+In all lm models the residuals is significantly corraleted in lag1 it is not desirable. 
+
+
+**Arima Models**
+
+
+**Arima Models** 
+
+When arima models is constructed, the auto.arima function is used, and in every day the auto.arima function is runs again. 
+the seasonality is TRUE, and frequency is determined as seven by observing ACF and PACF graph. 
+
+Additive Model, Multplive Model, and linear regression model is used for decomposition and get stationary data. 
+
+```{r}
+print("The Additive Model")
+decomposed <- decompose(ts(product9$sold_count,frequency= 7))
+ur.kpss(decomposed$random)
+
+print("The Multiplicative Model")
+ur.kpss(decompose(ts(product9$sold_count,frequency= 7), type="mul")$random)
+
+print("Linear Regression")
+residuals <- residuals(lm9)
+ur.kpss(residuals)
+
+decomposed <- decompose(ts(train9$sold_count,frequency= 7))
+``` 
+
+I used the addtive model in examination, however, the mul model is also used in predictions and calculated error rate since it is significant at level = 0.05
+
+
+
+
+**Arima** 
+
+
+
+```{r}
+acf(decomposed$random, lag = 14, na.action = na.pass)
+pacf(decomposed$random, lag = 14, na.action = na.pass)
+arima <- auto.arima(decomposed$random) 
+arima
+
+checkresiduals(arima)
+
+ pred <- arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train9[1:length(pred)]$event_date, y= train9[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train9[1:length(pred)]$event_date, y= pred, color= "Predicted")) + labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted by Arima combined with Linear Regression"
+ ) + theme_minimal()
+```
+
+
+
+
+
+**Arima with Regressor** 
+
+
+
+```{r}
+reg_arima <- auto.arima(decomposed$random, xreg = xreg9[1:(length(decomposed$random))]) 
+reg_arima
+
+checkresiduals(reg_arima)
+
+
+ pred <- reg_arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train9[1:length(pred)]$event_date, y= train9[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train9[1:length(pred)]$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for arima model with regressors"
+ ) + theme_minimal()
+```
+
+
+
+
+
+
+**Arima comined with Linear Regression**
+
+
+
+```{r}
+
+acf(residuals)
+pacf(residuals)
+lm_arima <- auto.arima(residuals)
+lm_arima
+checkresiduals(lm_arima)
+
+ pred <- lm_arima$fitted + lm9$fitted.values
+ 
+ 
+ ggplot() + geom_line(aes( x= train9[1:length(pred)]$event_date,  y= train9[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes(  x= train9[1:length(pred)]$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for linear model and arima combination"
+ )  + theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+**Predictions**
+
+```{r}
+
+
+prediction9 <- data.table("event_date" = test_dates,"actual"= product9[event_date %in% test_dates]$sold_count, "sqrt_forecasted_sold"= c(1:length(test_dates)), "BoxCox_forecasted_sold"= c(1:length(test_dates)), "lm_forecasted_sold"= c(1:length(test_dates)), "forecasted_lm9_arima"= c(1:length(test_dates)) )
+
+
+prediction9[, add_arima_forecasted := 0]
+prediction9[ , mul_arima_forecasted := 0]
+prediction9[, reg_add_arima_forecasted := 0]
+prediction9[ ,reg_mul_arima_forecasted := 0]
+
+
+
 
 for(i in 1:length(test_dates)){
     current_date=test_dates[i]-forecast_ahead
     past_data=product9[event_date<=current_date]
     forecast_data=product9[event_date==test_dates[i]]
     
+    forecasted=forecast_lm9_sqrt(past_data,forecast_data)
+    prediction9$sqrt_forecasted_sold[i]<- forecasted$forecast^2
     
-    testprediction9$add_arima_forecasted[i] <- add_arima(past_data,1,7)
-    testprediction9$reg_add_arima_forecasted[i] <- xreg_add_arima(past_data,1,7,xreg9)
-    testprediction9$mul_arima_forecasted[i] <- mul_arima(past_data,1,7)
-    testprediction9$reg_mul_arima_forecasted[i] <- xreg_mul_arima(past_data,1,7,xreg9)
-}
-
-#testprediction9 [ ,combine2 := (3*testlm_forecasted_sold+5*testsqrt_forecasted_sold + 1*reg_mul_arima_forecasted)/9]
-
-
-ggplot() + geom_line(data = product9[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
-  geom_line(data = testprediction9,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
-   geom_line(data = testprediction9,aes( x = event_date,y =mul_arima_forecasted, color = "mul_arima_forecasted")) +
-   geom_line(data = testprediction9,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
-   geom_line(data = testprediction9,aes( x = event_date,y =reg_mul_arima_forecasted , color = "reg_mul_arima_forecasted"))
- # geom_line(data = testprediction9,aes( x = event_date,y =combine2 , color = "combine2"))
-  
-
-  
-  
-
-testprediction9[,actual:= product9[event_date %in% test_dates]$sold_count]
-
-
-
-#melted_result=melt(testprediction9,c('event_date','actual'))
-
-error9 =  data.table()
-
-for(i in 2:(length(testprediction9))){
-  
-
-  error9 <- rbind(error9, accu(test9$sold_count,testprediction9[,..i],colnames(testprediction9[,..i])))
+    forecasted=forecast_BoxCox9(past_data,forecast_data)
+    prediction9$BoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
+    
+    forecasted=forecast_lm9(past_data,forecast_data)
+    prediction9$lm_forecasted_sold[i]<- forecasted$forecast
+    
+    prediction9$forecasted_lm9_arima[i] <- forecast_lm9_arima(past_data,forecast_data)
+    
+    
+    prediction9$add_arima_forecasted[i] <- add_arima(past_data,1,7)
+    prediction9$reg_add_arima_forecasted[i] <- xreg_add_arima(past_data,1,7,xreg9)
+    prediction9$mul_arima_forecasted[i] <- mul_arima(past_data,1,7)
+    prediction9$reg_mul_arima_forecasted[i] <-xreg_mul_arima(past_data,1,7,xreg9)
 }
 
 
 
-## forcast next day
-
-
-
-
-add_arima(product9,1,7)
-mul_arima(product9,1,7)
-xreg_mul_arima(product9,1,7, xreg9)
-xreg_add_arima(product9,1,7, xreg9)
-forecast_lm9(product9,nextday)$forecast
-InvBoxCox(forecast_BoxCox9(product9,nextday)$forecast, lambda = lambda)
-(forecast_lm9_sqrt(product9,nextday)$forecast)^2
-
-
-
-
-
-
- 
-
-
-
-
+prediction9
 
 
 ```
+
+
+
+```{r}
+
+ggplot() + geom_line(data = product9[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
+  geom_line(data = prediction9,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
+   geom_line(data = prediction9,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
+   geom_line(data = prediction9,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) +
+   geom_line(data = prediction9,aes( x = event_date,y =forecasted_lm9_arima, color = " lm_arima")) +
+   geom_line(data = prediction9,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
+   geom_line(data = prediction9,aes( x = event_date,y =mul_arima_forecasted, color = "mul_arima_forecasted")) +
+   geom_line(data = prediction9,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
+   geom_line(data = prediction9,aes( x = event_date,y =reg_mul_arima_forecasted , color = "reg_mul_arima_forecasted"))+
+   labs(
+    x= "time",
+    y= "sales",
+    main= "Predictions vs. Actual Values"
+  ) + 
+  theme_minimal()
+```
+
+
+**EROR RATES**
+
+
+
+```{r}
+error9 =  data.table()
+
+for(i in 3:(length(prediction9))){
+  
+
+  error9 <- rbind(error9, accu(test9$sold_count,prediction9[,..i],colnames(prediction9[,..i])))
+}
+
+
+error9
+
+
+```
+
+**Next Day Prediction**
+
+In every day, the error rates are calculated for last 14 days and the model predictions and the model prediction has the lowest  WMAPE value of is selected. 
+
+```{r}
+## forcast next day
+
+
+nextday_pred <-c(
+
+"add_arima" = add_arima(product9,1,7),
+"mul_arima" = mul_arima(product9,1,7),
+"xreg_mul_arima" = xreg_mul_arima(product9,1,7, xreg9),
+"xreg_add_arima" = xreg_add_arima(product9,1,7, xreg9),
+"forecast_lm" =forecast_lm9(product9,nextday)$forecast,
+"forecast_lm_arima" = forecast_lm9_arima(product9,nextday)[1],
+"BoxCox_lm" = InvBoxCox(forecast_BoxCox9(product9,nextday)$forecast, lambda = lambda),
+"Sqrt_lm" = (forecast_lm9_sqrt(product9,nextday)$forecast)^2
+
+
+)
+
+nextday_pred
+
+```
+
+
 
 

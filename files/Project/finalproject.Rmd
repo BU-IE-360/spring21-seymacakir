@@ -1,0 +1,3789 @@
+---
+title: " IE 360 Project: Trendyol Products Sales Forecasting "
+author: " Seyma Cakir - 2017402024 Oya Hoban - 2018402150 Ozlem SENEL - 2017402117 "
+date:  " 2021-06-06 " 
+output:
+ html_document:
+   toc: true
+   toc_float: true
+   smooth_scroll : true
+---
+
+````{r }
+knitr::opts_chunk$set( echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+
+
+# INTRODUCTION
+
+In this project, it will be predicted some of products that are sold at an e-commerce platform called 'Trendyol'. The sold count will be examined for each product and data will be decomposed. Then,  some forecasting strategies will be developed  and the best among them according to their weighted mean absolute errors will be picked. The data before 29 May 2021 will be train dataset for our models to learn and data from 29 May to 11 June 2021 will be test dataset. There are 9 products that it will be examined:
+
++ 85004 - La Roche Posay Face Cleanser
++ 4066298 - Sleepy Baby Wipes
++ 6676673 - Xiaomi Bluetooth Headphones
++ 7061886 - Fakir Vacuum Cleaner
++ 31515569 - TrendyolMilla Tights
++ 32737302 - TrendyolMilla Bikini Top
++ 32939029 - Oral-B Rechargeable ToothBrush
++ 48740784 - Altınyıldız Classics Jacket
++ 73318567 - TrendyolMilla Bikini Top
+
+
+
+```{r  setup, include=FALSE}
+library(jsonlite)
+library(httr)
+library(data.table)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(tidyr)
+library(tidyverse)
+library(scales)
+library(ggcorrplot)
+library(forecast)
+library(urca)
+library(zoo)
+library(reshape)
+library(GGally)
+library(PerformanceAnalytics)
+library(readxl)
+library(RColorBrewer)
+library(colorspace)
+library(tibble)
+library(fpp)
+library(xts)
+library(gridExtra)
+library(MLmetrics)
+library(readr)
+library(GGally)
+library(PerformanceAnalytics)
+library(gridExtra)
+library(corrplot)
+
+
+
+
+
+get_token <- function(username, password, url_site){
+  
+  post_body = list(username=username,password=password)
+  post_url_string = paste0(url_site,'/token/')
+  result = POST(post_url_string, body = post_body)
+  
+  # error handling (wrong credentials)
+  if(result$status_code==400){
+    print('Check your credentials')
+    return(0)
+  }
+  else if (result$status_code==201){
+    output = content(result)
+    token = output$key
+  }
+  
+  return(token)
+}
+
+get_data <- function(start_date='2020-03-20', token, url_site){
+  
+  post_body = list(start_date=start_date,username=username,password=password)
+  post_url_string = paste0(url_site,'/dataset/')
+  
+  header = add_headers(c(Authorization=paste('Token',token,sep=' ')))
+  result = GET(post_url_string, header, body = post_body)
+  output = content(result)
+  data = data.table::rbindlist(output)
+  data[,event_date:=as.Date(event_date)]
+  data = data[order(product_content_id,event_date)]
+  return(data)
+}
+
+
+send_submission <- function(predictions, token, url_site, submit_now=F){
+  
+  format_check=check_format(predictions)
+  if(!format_check){
+    return(FALSE)
+  }
+  
+  post_string="list("
+  for(i in 1:nrow(predictions)){
+    post_string=sprintf("%s'%s'=%s",post_string,predictions$product_content_id[i],predictions$forecast[i])
+    if(i<nrow(predictions)){
+      post_string=sprintf("%s,",post_string)
+    } else {
+      post_string=sprintf("%s)",post_string)
+    }
+  }
+  
+  submission = eval(parse(text=post_string))
+  json_body = jsonlite::toJSON(submission, auto_unbox = TRUE)
+  submission=list(submission=json_body)
+  
+  print(submission)
+  # {"31515569":2.4,"32737302":2.4,"32939029":2.4,"4066298":2.4,"48740784":2.4,"6676673":2.4, "7061886":2.4, "73318567":2.4, "85004":2.4} 
+  
+  if(!submit_now){
+    print("You did not submit.")
+    return(FALSE)      
+  }
+  
+  
+  header = add_headers(c(Authorization=paste('Token',token,sep=' ')))
+  post_url_string = paste0(url_site,'/submission/')
+  result = POST(post_url_string, header, body=submission)
+  
+  if (result$status_code==201){
+    print("Successfully submitted. Below you can see the details of your submission")
+  } else {
+    print("Could not submit. Please check the error message below, contact the assistant if needed.")
+  }
+  
+  print(content(result))
+  
+}
+
+check_format <- function(predictions){
+  
+  if(is.data.frame(predictions) | is.data.frame(predictions)){
+    if(all(c('product_content_id','forecast') %in% names(predictions))){
+      if(is.numeric(predictions$forecast)){
+        print("Format OK")
+        return(TRUE)
+      } else {
+        print("forecast information is not numeric")
+        return(FALSE)                
+      }
+    } else {
+      print("Wrong column names. Please provide 'product_content_id' and 'forecast' columns")
+      return(FALSE)
+    }
+    
+  } else {
+    print("Wrong format. Please provide data.frame or data.table object")
+    return(FALSE)
+  }
+  
+}
+
+# this part is main code
+subm_url = 'http://46.101.163.177'
+
+u_name = "Group3"
+p_word = "LaQjwxkIGSGhBrRj"
+submit_now = TRUE
+
+username = u_name
+password = p_word
+
+token = get_token(username=u_name, password=p_word, url=subm_url)
+data = get_data(token=token,url=subm_url)
+
+#predictions=unique(data[,list(product_content_id)])
+#predictions[,forecast:= c(224,110,122,494,2,474,22,62,56)]
+
+#send_submission(predictions, token, url=subm_url, submit_now=T)
+
+
+```
+
+
+```{r  Get Data, include=FALSE, echo=FALSE}
+rawdata <- read.csv("C:/Users/seyma/OneDrive/Belgeler/GitHub/spring21-seymacakir/files/project/ProjectRawData.csv", header = TRUE,sep = ",")
+rawdata <- as.data.table(rawdata)
+colnames <- c( "price","event_date","product_content_id","sold_count" , "visit_count" , "favored_count" , "basket_count","category_sold",     "category_brand_sold", "category_visits"  ,   "ty_visits"  ,         "category_basket",    "category_favored" )
+rawdata <- rawdata[,..colnames]
+rawdata <- rawdata[!is.na(sold_count)]
+rawdata$event_date <- as.Date(rawdata$event_date, format = "%Y-%m-%d")
+rawdata$product_content_id <- as.factor(rawdata$product_content_id)
+data$product_content_id <- as.factor(data$product_content_id)
+
+rawdata <- rbind(rawdata,data)
+
+rawdata <- rawdata %>% distinct(event_date, product_content_id, .keep_all = TRUE )
+rawdata <- rawdata %>% arrange(event_date)
+
+rawdata[,w_day:= wday(event_date)]
+rawdata[,mon:= month(event_date)]
+
+product_id <- unique(rawdata$product_content_id)
+product_id
+products <- list()
+for ( i in 1:length(product_id)){
+  products[[i]] <- as.data.table(rawdata[product_content_id == product_content_id[i]])
+}
+
+```
+
+Since campaign dates are important for the sales and most peaks in sales happen during these times,as external data, campaign dates of the Trendyol is investigated and included as input attribute 'is_campaign'. The data is taken from [Trendyol's website](https://www.trendyol.com/s/ozel-gunler).
+
+```{r  Manipulation Part 1, include=FALSE, echo=FALSE}
+
+rawdata[rawdata$event_date >= as.Date("2021-05-07") & rawdata$event_date <= as.Date("2021-05-09"), is_campaign := 1]
+
+rawdata[rawdata$event_date >= as.Date("2020-06-18") & rawdata$event_date <= as.Date("2020-06-20") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-06-18") & rawdata$event_date <= as.Date("2021-06-20") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-09-08") & rawdata$event_date <= as.Date("2020-09-12") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-09-10") & rawdata$event_date <= as.Date("2021-09-12") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-11-09") & rawdata$event_date <= as.Date("2020-11-11") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-11-25") & rawdata$event_date <= as.Date("2020-11-29") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-03-09") & rawdata$event_date <= as.Date("2021-03-12") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-04-27") & rawdata$event_date <= as.Date("2021-04-29") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-12-21") & rawdata$event_date <= as.Date("2020-12-24") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-06-09") & rawdata$event_date <= as.Date("2021-06-10") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-04-05") & rawdata$event_date <= as.Date("2021-04-07") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-06-19") & rawdata$event_date <= as.Date("2021-06-21") , is_campaign := 1]
+rawdata[is.na(rawdata$is_campaign) == T, is_campaign := 0]
+
+
+
+
+
+```
+
+
+```{r  Functions, include=FALSE, echo=FALSE}
+#Accuracy fnc
+accu=function(actual,forecast){
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.frame(n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
+}
+
+
+#Suppose we introduce linear regression-based approaches.
+forecast_with_lr=function(fmla, data,forecast_data){
+  fitted_lm=lm(as.formula(fmla),data)
+  forecasted=predict(fitted_lm,forecast_data)
+  return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+# forecast with ARIMA models
+forecast_with_arima=function(data,forecast_ahead,target_name='Sales',
+                             is_seasonal=F,is_stepwise=F,is_trace=T,is_approx=F){
+  command_string=sprintf('input_series=data$%s',target_name)
+  print(command_string)
+  eval(parse(text=command_string))
+  
+  fitted=auto.arima(input_series,seasonal=is_seasonal,
+                    trace=is_trace,stepwise=is_stepwise,approximation=is_approx)
+  
+  forecasted=forecast(fitted,h=forecast_ahead)
+  return(list(forecast=as.numeric(forecasted$mean),model=fitted))
+}
+
+# forecast with ARIMA models + SARIMA and use of learned model capabilities
+forecast_with_arima_extended=function(data,forecast_ahead,target_name='Sales',
+                                      is_seasonal=F,is_stepwise=F,is_trace=T,is_approx=F, 
+                                      seasonality_period=NULL,fitted_model=NULL){
+  
+  if(is_seasonal & !is.null(seasonality_period)){
+    command_string=sprintf('input_series=ts(data$%s,freq=%d)',target_name,seasonality_period)
+  } else {
+    command_string=sprintf('input_series=data$%s',target_name)
+  }
+  print(command_string)
+  eval(parse(text=command_string))
+  
+  if(is.null(fitted_model)){
+    fitted=auto.arima(input_series,seasonal=is_seasonal,
+                      trace=is_trace,stepwise=is_stepwise,approximation=is_approx)           
+  } else {
+    fitted=Arima(input_series, model=fitted_model)
+  }
+  
+  
+  forecasted=forecast(fitted,h=forecast_ahead)
+  return(list(forecast=as.numeric(forecasted$mean),model=fitted))
+}
+
+
+```
+
+# PRODUCT 1 - La Roche Posay Face Cleanser
+
+
+```{r product1, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+product1 <- products[[1]]
+setDT(product1)
+
+product1$basket_count[product1$basket_count == 0] <- mean(product1$basket_count[product1$basket_count !=0])
+product1$favored_count[product1$favored_count == 0] <- mean(product1$favored_count[product1$favored_count !=0])
+product1$sold_count[product1$sold_count == 0] <- mean(product1$sold_count[product1$sold_count !=0])
+product1$visit_count[product1$visit_count == 0] <- mean(product1$visit_count[product1$visit_count !=0])
+product1$category_favored[product1$category_favored == 0] <- mean(product1$category_favored[product1$category_favored !=0])
+product1$category_sold[product1$category_sold == 0] <- mean(product1$category_sold[product1$category_sold !=0])
+product1$category_visits[product1$category_visits == 0] <- mean(product1$category_visits[product1$category_visits !=0])
+product1$category_basket[product1$category_basket == 0] <- mean(product1$category_basket[product1$category_basket !=0])
+product1$category_brand_sold[product1$category_brand_sold == 0] <- mean(product1$category_brand_sold[product1$category_brand_sold !=0])
+product1$ty_visits[product1$ty_visits == 0] <- mean(product1$ty_visits[product1$ty_visits !=0])
+
+
+train <- product1[product1$event_date <= as.Date("2021-05-28")]
+test <- product1[product1$event_date > as.Date("2021-05-28") & product1$event_date <= as.Date("2021-06-11")]
+
+test_start=as.Date("2021-05-29")
+test_end=as.Date("2021-06-11")
+test_dates=seq(test_start,test_end,by='day')
+
+
+```
+
+Before making forecasting models,  it should be looked at the plot of data and examined the seasonalities and trend. Below, you can see the plot of sales quantity of Product 1. There is a slightly increasing trend, especially in the middle of the plot. There can't be seen any significant seasonality. To look further, there is a plot of 3 months of 2021 - March, April and May -. Again, the seasonality isn't very significant but it is seen that the data is higher in the beginning of the month and decreases to the end of the month. It can be said that there is monthly seasonality.
+
+
+```{r plots1, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ggplot(train,aes(x=event_date,y=sold_count)) + geom_line(color="brown2") +  theme_light()+labs(x = "Date",
+       y = "Sales Quantity of the Product") + geom_smooth(color="black", linetype="longdash", se = FALSE)
+
+ggplot(train[event_date<='2021-05-29' & event_date>='2021-03-01'] ,aes(x=event_date,y=sold_count)) + geom_line(color="darkolivegreen4") +  theme_light()+labs(x = "3 months of 2021",
+       y = "Log of Sales Quantity of the Product")
+```
+
+### Linear Regression Model For Product 1
+
+First type of model that is going to used is linear regression model. First of all, it would be wise to select attributes that will help to model from correlation matrix. Below, you can see the correlations between the attributes. According to this matrix, category_sold, category_favored, and basket_count can be added to the model. 
+
+```{r correlation1, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+data <- train [, -c(2,3)]
+ggcorrplot(corr = cor(data),hc.order = TRUE, type = "upper",lab = TRUE, title = "Correlation Matrix", colors = c("darkolivegreen1","darkolivegreen3","darkolivegreen4"), show.legend = FALSE, lab_size = 3)
+
+
+```
+
+In the first model, the attributes are added to the model. The adjusted R-squared value indicates whether model is good or not. The value for the first model is pretty high which is a good sign. But there are outliers which is probably due to campaigns and holidays. The outliers can be eliminated for a better model. Lastly, 'lag1' attribute can be added because it is very high in the ACF. In the final linear regression model, adjusted R-squared value is high enough and plots are good enough to make predictions.
+
+```{r linear1, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+
+sold=data.table(sold_count=as.numeric(train$sold_count))
+sold=cbind(sold,category_sold=as.numeric(train$category_sold))
+sold=cbind(sold, category_favored=as.numeric(train$category_favored))
+sold=cbind(sold, basket_count=as.numeric(train$basket_count))
+fit <- lm(sold_count ~ category_sold + category_favored + basket_count, data=sold)
+summary(fit)
+checkresiduals(fit)
+
+box1 <- ggplot(data = train,aes(x = event_date, y = sold_count))
+box1 + geom_boxplot(aes(y = sold_count), fill = "lightskyblue1") + theme_light()
+
+sold1=data.table(sold_count=as.numeric(train$sold_count))
+summary(sold1)
+sold[sold_count> 171.75 ,big_outlier:= 1]
+sold[is.na(big_outlier)==T,big_outlier:=0]
+fit2 <- lm(sold_count ~ big_outlier + category_sold + category_favored + basket_count, data=sold)
+summary(fit2)
+checkresiduals(fit2)
+
+lag1=shift(residuals(fit2),1)
+sold=cbind(sold,lag1)
+sold[is.na(lag1)==T,lag1:=0]
+fit3 <- lm(sold_count ~ lag1  + big_outlier  + category_sold + category_favored + basket_count, data=sold)
+summary(fit3)
+checkresiduals(fit3)
+
+
+```
+
+### Arima Model For Product 1
+
+Second type of model that is going to build is ARIMA model. For this model, in the beginning, the data should be decomposed. Firstly, a frequency value should be chosen. Since there is no significant seasonality, the highest value in the ACF will be chosen which is 63. Additive type of decomposition will be used for this task. Below, the random series can be seen.
+
+```{r decomposition1, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plotacf <- ggAcf(train$sold_count, lag.max=80,  col = "coral4") + theme_light()
+grid.arrange(plotacf)
+
+ts_train<-ts(train$sold_count,freq=63, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 63)
+
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 63)
+
+
+```
+
+After the decomposition, (p,d,q) values should be chosen for the model. For this task, ACF and PACF will be examined. Looking at the ACF, for 'q' value 1 or 7 can be chosen and looking at the PACF, for 'p' value 1 can be chosen. Also, auto.arima function is used as well. The AIC and BIC values of models that are suggested can be seen below.  Smaller AIC and BIC values means the model is better. So, looking at AIC and BIC values, (2,0,2) model that auto.arima is suggested is best among them. After the model is selected, the regressors that most correlates with the sold count are added to model to make it better. In the final model, the AIC and BIC values are lower. We can proceed with this model.
+
+```{r arima1, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plot5 <- ggAcf(detrend, lag.max=15,  col = "maroon1") +  
+  theme_light()
+plot6 <- ggAcf(detrend, lag.max=15,  col = "maroon1", type=c("partial")) +  
+  theme_light()
+grid.arrange(plot5, plot6)
+
+library(stats)
+
+model1 <- arima(detrend, order=c(1,0,1))
+print(model1)
+AIC(model1)
+BIC(model1)
+model2 <- arima(detrend, order=c(1,0,7))
+print(model2)
+AIC(model2)
+BIC(model2)
+
+final=auto.arima(detrend, seasonal=FALSE, trace=F)
+print(final)
+AIC(final)
+BIC(final)
+#(2,0,2)
+
+xreg <- cbind(train$basket_count, train$category_favored)
+model3 <- arima(detrend, order=c(2,0,2), xreg= xreg)
+print(model3)
+AIC(model3)
+BIC(model3)
+```
+
+### Comparison Of Models
+
+We selected two models for prediction. Here, it can be seen their accuracy values. According to box plot, the variance of weighted mean absolute errors for linear model is higher especially in the end. We should choose Arima model because WMAPE value of the model is lower which is a sign for better model.
+
+```{r Different Models1, echo=FALSE, message=FALSE, warning=FALSE}
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+
+for(i in 1:length(test_dates)){
+current_date=test_dates[i]-forecast_ahead
+
+past_data=product1[event_date<=current_date]
+forecast_data=product1[event_date==test_dates[i]]
+
+# first lm model
+past_data[sold_count> 171.75 ,big_outlier:= 1]
+past_data[is.na(big_outlier)==T,big_outlier:=0]
+fit2 <- lm(sold_count ~ big_outlier + category_sold + category_favored + basket_count, data=past_data)
+lag1=shift(residuals(fit2),1)
+past_data=cbind(past_data,lag1)
+past_data[is.na(lag1)==T,lag1:=0]
+forecast_data[,lag1:=tail(past_data$lag1,1)]
+forecast_data[sold_count> 171.75 ,big_outlier:= 1]
+forecast_data[is.na(big_outlier)==T,big_outlier:=0]
+
+fmla='sold_count ~ lag1  + big_outlier  + category_sold + category_favored + basket_count'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction:=forecasted$forecast]
+
+
+#selected arima
+ts_train<-ts(past_data$sold_count,freq=63, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+pred_bc<- predict(past_data$basket_count)
+new_basket_count <- pred_bc$fitted[1]
+pred_cf<- predict(past_data$category_favored)
+new_category_favored <- pred_cf$fitted[1]
+newxreg <- cbind(new_basket_count, new_category_favored)
+xreg <- cbind(past_data$basket_count, past_data$category_favored)
+model3 <- arima(detrend, order=c(2,0,2), xreg= xreg)
+predicted <- predict(model3, newxreg= newxreg, h=1)$pred
+last_trend <-tail(trend[!is.na(trend)],1)
+seasonality <- head(tail(seasonal,6),1)
+#predicted_actual_log <- predicted+last_trend+seasonality
+predicted_actual <- as.numeric(predicted) + as.numeric(last_trend) + as.numeric(seasonality)
+
+forecast_data[,selected_arima:=predicted_actual]
+
+results[[i]]=forecast_data
+
+}
+
+forecast_data
+
+overall_results=rbindlist(results)
+
+
+melted_result=melt(overall_results,c("event_date","sold_count"),c("lm_prediction","selected_arima"))
+
+setDT(melted_result)
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+
+ggplot(performance, aes(x=day_of_week, y=WMAPE,fill=variable)) + 
+  geom_boxplot() 
+
+```
+
+
+
+For conclusion, here is a plot of actual test set and predicted values of chosen model. As it can be seen, the predictions are pretty accurate.
+
+```{r Selected Model1, include=TRUE, echo=FALSE}
+days <- as.Date(as.Date("2021-05-29"):as.Date("2021-06-11"))
+
+myvalues <- xts(x = data.frame(overall_results$selected_arima, test$sold_count), order.by = days, frequency = 7)
+colnames(myvalues) <- c("Prediction", "Real Values")
+plot(myvalues, main = "Predictions and Real Values", legend.loc = "bottomleft")
+
+```
+
+# PRODUCT 2 - Sleepy Baby Wipes
+
+
+```{r product2, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+product2 <- products[[2]]
+setDT(product2)
+
+product2$basket_count[product2$basket_count == 0] <- mean(product2$basket_count[product2$basket_count !=0])
+product2$favored_count[product2$favored_count == 0] <- mean(product2$favored_count[product2$favored_count !=0])
+product2$sold_count[product2$sold_count == 0] <- mean(product2$sold_count[product2$sold_count !=0])
+product2$visit_count[product2$visit_count == 0] <- mean(product2$visit_count[product2$visit_count !=0])
+product2$category_favored[product2$category_favored == 0] <- mean(product2$category_favored[product2$category_favored !=0])
+product2$category_sold[product2$category_sold == 0] <- mean(product2$category_sold[product2$category_sold !=0])
+product2$category_visits[product2$category_visits == 0] <- mean(product2$category_visits[product2$category_visits !=0])
+product2$category_basket[product2$category_basket == 0] <- mean(product2$category_basket[product2$category_basket !=0])
+product2$category_brand_sold[product2$category_brand_sold == 0] <- mean(product2$category_brand_sold[product2$category_brand_sold !=0])
+product2$ty_visits[product2$ty_visits == 0] <- mean(product2$ty_visits[product2$ty_visits !=0])
+
+
+train <- product2[product2$event_date <= as.Date("2021-05-28")]
+test <- product2[product2$event_date > as.Date("2021-05-28") & product2$event_date <= as.Date("2021-06-11")]
+
+test_start=as.Date("2021-05-29")
+test_end=as.Date("2021-06-11")
+test_dates=seq(test_start,test_end,by='day')
+
+
+```
+
+Before making forecasting models for product 2,  it should be looked at the plot of data and examined the seasonalities and trend. Below, you can see the plot of sales quantity of Product 2. There isn't a significant trend as it can be seen. Also, there can't be seen any significant seasonality. To look further, there is a plot of 3 months of 2021 - March, April and May -. Again, the seasonality isn't significant, though it can be said there is a spike in the plot at the beginning of the month. In May, there is a big rising probably due to Covid-19 conditions. In conclusion, it can be said that there is monthly seasonality but it isn't very clear.
+
+```{r plots2, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ggplot(train,aes(x=event_date,y=sold_count)) + geom_line(color="brown2") +  theme_light()+labs(x = "Date",
+       y = "Sales Quantity of the Product") + geom_smooth(color="black", linetype="longdash", se = FALSE)
+
+ggplot(train[event_date<='2021-05-29' & event_date>='2021-03-01'] ,aes(x=event_date,y=sold_count)) + geom_line(color="darkolivegreen4") +  theme_light()+labs(x = "3 months of 2021",
+       y = "Log of Sales Quantity of the Product")
+```
+
+### Linear Regression Model For Product 2
+
+First type of model that is going to used is linear regression model. First of all, it would be wise to select attributes that will help to model from correlation matrix. Below, you can see the correlations between the attributes. According to this matrix, category_sold, category_visits, and basket_count can be added to the model. 
+
+```{r correlation2, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+data <- train [, -c(2,3)]
+ggcorrplot(corr = cor(data),hc.order = TRUE, type = "upper",lab = TRUE, title = "Correlation Matrix", colors = c("darkolivegreen1","darkolivegreen3","darkolivegreen4"), show.legend = FALSE, lab_size = 3)
+
+
+```
+
+In the first model, the attributes are added to the model. The adjusted R-squared value indicates whether model is good or not. The value for the first model is pretty high which is a good sign. But there are outliers which is probably due to campaigns and holidays. The outliers can be eliminated for a better model. Lastly, 'lag1' attribute can be added because it is very high in the ACF. In the final linear regression model, adjusted R-squared value is high enough and plots are good enough to make predictions.
+
+```{r linear2, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+
+sold=data.table(sold_count=as.numeric(train$sold_count))
+sold=cbind(sold,category_sold=as.numeric(train$category_sold))
+sold=cbind(sold, category_visits=as.numeric(train$category_visits))
+sold=cbind(sold, basket_count=as.numeric(train$basket_count))
+fit <- lm(sold_count ~ category_sold + category_visits + basket_count, data=sold)
+summary(fit)
+checkresiduals(fit)
+
+box1 <- ggplot(data = train,aes(x = event_date, y = sold_count))
+box1 + geom_boxplot(aes(y = sold_count), fill = "lightskyblue1") + theme_light()
+
+sold1=data.table(sold_count=as.numeric(train$sold_count))
+summary(sold1)
+sold[sold_count> 830 ,big_outlier:= 1]
+sold[is.na(big_outlier)==T,big_outlier:=0]
+fit2 <- lm(sold_count ~ big_outlier + category_sold + category_visits + basket_count, data=sold)
+summary(fit2)
+checkresiduals(fit2)
+
+lag1=shift(residuals(fit2),1)
+sold=cbind(sold,lag1)
+sold[is.na(lag1)==T,lag1:=0]
+fit3 <- lm(sold_count ~ lag1  + big_outlier  + category_sold + category_visits + basket_count, data=sold)
+summary(fit3)
+checkresiduals(fit3)
+
+
+```
+
+### Arima Model For Product 2
+
+Second type of model that is going to build is ARIMA model. For this model, in the beginning, the data should be decomposed. Firstly, a frequency value should be chosen. Since there is no significant seasonality, the highest value in the ACF will be chosen which is 34. Additive type of decomposition will be used for this task. Below, the random series can be seen.
+
+```{r decomposition2, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plotacf <- ggAcf(train$sold_count, lag.max=80,  col = "coral4") + theme_light()
+grid.arrange(plotacf)
+
+ts_train<-ts(train$sold_count,freq=34, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 34)
+
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 34)
+
+
+```
+
+After the decomposition, (p,d,q) values should be chosen for the model. For this task, ACF and PACF will be examined. Looking at the ACF, for 'q' value 1 or 11 can be chosen and looking at the PACF, for 'p' value 1 can be chosen. Also, auto.arima function is used as well. The AIC and BIC values of models that are suggested can be seen below. Looking at AIC and BIC values, (1,0,11) model is best among them. After the model is selected, the regressors that most correlates with the sold count are added to model to make it better. In the final model, the AIC and BIC values are lower. We can proceed with this model.
+
+```{r arima2, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plot5 <- ggAcf(detrend, lag.max=15,  col = "maroon1") +  
+  theme_light()
+plot6 <- ggAcf(detrend, lag.max=15,  col = "maroon1", type=c("partial")) +  
+  theme_light()
+grid.arrange(plot5, plot6)
+
+library(stats)
+
+model1 <- arima(detrend, order=c(1,0,1))
+print(model1)
+AIC(model1)
+BIC(model1)
+model2 <- arima(detrend, order=c(1,0,11))
+print(model2)
+AIC(model2)
+BIC(model2)
+
+final=auto.arima(detrend, seasonal=FALSE, trace=F)
+print(final)
+AIC(final)
+BIC(final)
+#(3,0,0)
+
+xreg <- cbind(train$basket_count, train$category_visits, train$category_sold)
+model3 <- arima(detrend, order=c(1,0,11), xreg= xreg)
+print(model3)
+AIC(model3)
+BIC(model3)
+```
+
+### Comparison Of Models
+
+We selected two models for prediction. Here, it can be seen their accuracy values. According to box plot, the weighted mean absolute errors for Arima model is higher. We should choose Linear model because WMAPE value of the model is lower which is a sign for better model.
+
+```{r Different Models2, echo=FALSE, message=FALSE, warning=FALSE}
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+
+for(i in 1:length(test_dates)){
+current_date=test_dates[i]-forecast_ahead
+
+past_data=product2[event_date<=current_date]
+forecast_data=product2[event_date==test_dates[i]]
+
+
+# first lm model
+past_data[sold_count> 830 ,big_outlier:= 1]
+past_data[is.na(big_outlier)==T,big_outlier:=0]
+fit2 <- lm(sold_count ~ big_outlier + category_sold + category_visits + basket_count, data=past_data)
+lag1=shift(residuals(fit2),1)
+past_data=cbind(past_data,lag1)
+past_data[is.na(lag1)==T,lag1:=0]
+forecast_data[,lag1:=tail(past_data$lag1,1)]
+forecast_data[sold_count> 830 ,big_outlier:= 1]
+forecast_data[is.na(big_outlier)==T,big_outlier:=0]
+
+fmla='sold_count ~ lag1  + big_outlier  + category_sold + category_visits + basket_count'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction:=forecasted$forecast]
+
+
+#selected arima
+ts_train<-ts(past_data$sold_count,freq=34, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+pred_bc<- predict(past_data$basket_count)
+new_basket_count <- pred_bc$fitted[1]
+pred_cf<- predict(past_data$category_visits)
+new_category_visits <- pred_cf$fitted[1]
+pred_cs<- predict(past_data$category_sold)
+new_category_sold <- pred_cs$fitted[1]
+newxreg <- cbind(new_basket_count, new_category_visits, new_category_sold)
+xreg <- cbind(past_data$basket_count, past_data$category_visits, past_data$category_sold)
+model3 <- arima(detrend, order=c(1,0,11), xreg= xreg)
+predicted <- predict(model3, newxreg= newxreg, h=1)$pred
+last_trend <-tail(trend[!is.na(trend)],1)
+seasonality <- head(tail(seasonal,6),1)
+#predicted_actual_log <- predicted+last_trend+seasonality
+predicted_actual <- as.numeric(predicted) + as.numeric(last_trend) + as.numeric(seasonality)
+
+forecast_data[,selected_arima:=predicted_actual]
+
+results[[i]]=forecast_data
+
+}
+
+forecast_data
+
+overall_results=rbindlist(results)
+
+
+melted_result=melt(overall_results,c("event_date","sold_count"),c("lm_prediction","selected_arima"))
+
+setDT(melted_result)
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+
+ggplot(performance, aes(x=day_of_week, y=WMAPE,fill=variable)) + 
+  geom_boxplot() 
+
+```
+
+
+For conclusion, here is a plot of actual test set and predicted values of chosen model. As it can be seen, the predictions are pretty accurate.
+
+```{r Selected Model2, include=TRUE, echo=FALSE}
+days <- as.Date(as.Date("2021-05-29"):as.Date("2021-06-11"))
+
+myvalues <- xts(x = data.frame(overall_results$lm_prediction, test$sold_count), order.by = days, frequency = 7)
+colnames(myvalues) <- c("Prediction", "Real Values")
+plot(myvalues, main = "Predictions and Real Values", legend.loc = "bottomleft")
+
+```
+
+
+
+
+# PRODUCT 3 - Xiaomi Bluetooth Headphones
+
+
+```{r  Add Product 6676673 Data, include=FALSE, echo=FALSE}
+data_6676673 <- rawdata[rawdata$product_content_id==6676673,]
+
+
+data_6676673$favored_count[data_6676673$favored_count == 0] <- mean(data_6676673$favored_count[data_6676673$favored_count !=0])
+data_6676673$category_basket[data_6676673$category_basket == 0] <- mean(data_6676673$category_basket[data_6676673$category_basket !=0])
+data_6676673$category_brand_sold[data_6676673$category_brand_sold == 0] <- mean(data_6676673$category_brand_sold[data_6676673$category_brand_sold !=0])
+data_6676673$ty_visits[data_6676673$ty_visits == 1] <- mean(data_6676673$ty_visits[data_6676673$ty_visits !=1])
+data_6676673$visit_count[data_6676673$visit_count == 0] <- mean(data_6676673$visit_count[data_6676673$visit_count !=0])
+
+```
+
+At below,looking at the plots of the product; in line graph it can be observed that the sales have variance, in some dates the plot has peaks and also there might be a cyclical behaviour which is an indicator for seasonality. For further investigation, '3 Months Sales of 2021' plot can be examined, there is not clear repeating pattern that can be easily observed.
+
+Looking at the boxplots; in the weekly boxplot the sales is weekdays seem to be similar, daily and weekly seasonaity can be investigated. 
+In monthly boxplot, there is change with respect to months, there is no clear repeating monthly behaviour.
+In histograms, one can observe that the sales' distribution is close to normal distribution.
+```{r  Plots for Product 6676673, include=TRUE, echo=FALSE}
+
+for(i in 3){
+  
+  
+  g1 <-ggplot(products[[i]], aes( x = event_date, y = sold_count)) + geom_line() + ggtitle(paste("product",i)) +theme_minimal()  
+  g2 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(w_day))) + geom_boxplot() + 
+    ggtitle(paste("product",i))+ theme_minimal() 
+  g3 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(mon))) + geom_boxplot()+
+    ggtitle(paste("product",i))+ theme_minimal() 
+  g4 <- ggplot(products[[i]], aes( x = sold_count)) + geom_histogram() + ggtitle(paste("Histogram of Weekly Sales of Product",i)) + theme_minimal()+
+    facet_wrap(~factor(w_day))
+  g5 <-ggplot(products[[i]], aes( x = sold_count )) + geom_histogram() + theme_minimal()+ ggtitle(paste("Histogram of Monthly Sales of Product",i))
+  facet_wrap(~factor(mon))
+  
+  
+  print(g1)
+  print(g2)
+  print(g3)
+  print(g4)
+  print(g5)
+  
+  
+}
+
+
+ggplot(data_6676673[event_date<='2021-05-29' & event_date>='2021-03-01'] ,aes(x=event_date,y=sold_count)) + geom_line(color="darkolivegreen4") +  theme_light()+labs(x = "3 months of 2021",
+       y = "Sales Quantity of the Product")
+
+
+
+```
+
+
+
+```{r  Add Train Dates for Product 6676673 , include=FALSE, echo=FALSE}
+
+train_start=as.Date(head(data_6676673$event_date,1))
+test_start=as.Date("2021-05-29")
+test_end=as.Date("2021-06-11")
+
+test_dates=seq(test_start,test_end,by='day')
+
+
+
+```
+
+
+## Trying Different ARIMA Models for Product 3 - 6676673
+
+Firstly, different ARIMA models can be built in order to test different models on the test set. For this purpose, before building an ARIMA model, the data should be decomposed,a frequency value should be chosen. 30 and 7 day frequency can be selected and the data can be decomposed accordingly. Along with 30 and 7 day frequency, ACF plot of the data can be examined and in the lag that we see high autocorrelation it can be chosen as another trial frequency to decompose. Since variance don't seem to be increasing, additive type of decomposition can be used for decomposition. Below, the random series can be seen.
+
+```{r decomposition weekly product 3, fig.cap='Decomposition with 7 Day Freq',fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_6676673$sold_count,freq=7, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 7)
+
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+
+```
+
+```{r decomposition monthly product 3, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_6676673$sold_count,freq=30, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 30)
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+
+```
+
+The above decomposition series belong to time series with 7 and 30 days frequency, respectively.
+```{r plot acf product 3, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plotacf <- ggAcf(data_6676673$sold_count, lag.max=80,  col = "coral4") + theme_light()
+plotacf
+
+```
+
+
+Looking at the ACF plot of the series, highest ACF value belongs to lag 32, so time series decomposition with 32 day frequency would be sufficient.
+
+```{r decomposition product 3, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_6676673$sold_count,freq=32, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 32)
+plot1 <- autoplot(tsdeseasonalize, col = "black")+  
+  theme_light()
+plot3 <- ggAcf(deseasonalize, lag.max=400,  col = "black") + theme_light()
+
+grid.arrange(plot1, plot3)
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 32)
+plot2 <- autoplot(tsdetrend, col = "black")+  
+  theme_light()
+
+plot4 <- ggAcf(detrend, lag.max=400,  col = "black") +  theme_light()
+grid.arrange(plot2, plot4)
+
+
+```
+
+In time series decomposition, it is assumed that the random part is randomly distributed with mean zero and standard deviation 1; in order to decide on the best frequency, the random part of the decomposed series should be observed. In this case, the random part of the decomposed time series with 7 day frequency seem to be closer to randomly distributed series with mean zero and std dev 1, so it is chosen as the final decomposition.
+
+```{r decomposition weekly product 3 final, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_6676673$sold_count,freq=7, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 7)
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 7)
+
+
+```
+
+
+
+```{r choose product 3, echo=FALSE, message=FALSE, warning=FALSE}
+plot5 <- ggAcf(detrend, lag.max=15,  col = "maroon1") +  
+  theme_light()
+plot6 <- ggAcf(detrend, lag.max=15,  col = "maroon1", type=c("partial")) +  
+  theme_light()
+grid.arrange(plot5, plot6)
+```
+
+After the decomposition, (p,d,q) values should be chosen for the model. For this task, ACF and PACF will be examined.For q, peaks at ACF function can be chosen and for p values, peaks at PACF function can be chosen. 
+Looking at the ACF, for 'q' value 3 or 4 may be selected and looking at the PACF, for 'p' value 3 or 9 may be selected. Also, auto.arima function is used as well. The AIC and BIC values of models that are suggested can be seen below.  Smaller AIC and BIC values means the model is better. So, looking at AIC and BIC values, (3,0,4) model that auto.arima has suggested is best among them. 
+
+```{r try product 3, echo=FALSE, message=FALSE, warning=FALSE}
+library(stats)
+
+model1 <- arima(detrend, order=c(3,0,3))
+print(model1)
+AIC(model1)
+BIC(model1)
+model2 <- arima(detrend, order=c(3,0,4))
+print(model2)
+AIC(model2)
+BIC(model2)
+model3 <- arima(detrend, order=c(9,0,4))
+print(model3)
+AIC(model3)
+BIC(model3)
+
+final=auto.arima(detrend, seasonal=FALSE, trace=T)
+print(final)
+AIC(final)
+BIC(final)
+
+final = arima(detrend, order=c(3,0,4))
+
+```
+
+## Trying Different Linear Regression Models For Product 3
+
+The second type of model that is going to used is linear regression model. Below, you can see the correlations between the attributes. According to this matrix, basket_count, price_count, visit_count and favored_count can be added to the model. since ,above, in the box plots, it has been observed that there is monthly change in the data, so month information can also be added to the candidate models.
+
+
+```{r Corr Plot for Product 6676673, include=TRUE, echo=FALSE}
+
+ggcorrplot(corr = cor(data_6676673[,-c(3,2)]),hc.order = TRUE, type = "upper",lab = TRUE, title = "Correlation Matrix", show.legend = TRUE)
+
+
+```
+
+## Comparison of the Linear Regression and ARIMA Models for Product 3
+
+Different linear regression models and ARIMA models' performance on the test dates will be calculated and according to their performance, best model can be selected.
+
+```{r  Different Models for Product 6676673, include=FALSE, echo=FALSE}
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+current_date=test_dates[i]-forecast_ahead
+
+past_data=data_6676673[event_date<=current_date]
+forecast_data=data_6676673[event_date==test_dates[i]]
+
+# first lm models
+
+fmla='sold_count~basket_count + visit_count + as.factor(mon)'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction2:=forecasted$forecast]
+
+
+fmla='sold_count~basket_count + visit_count + price + as.factor(mon)'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction3:=forecasted$forecast]
+
+fmla='sold_count~basket_count + visit_count + price + favored_count + as.factor(mon)'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction4:=forecasted$forecast]
+
+fmla='sold_count~basket_count + visit_count + price + favored_count + as.factor(mon)+ as.factor(is_campaign)'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction5:=forecasted$forecast]
+
+fmla='sold_count~basket_count + visit_count + as.factor(mon)+ as.factor(is_campaign)'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction6:=forecasted$forecast]
+
+fmla='sold_count~basket_count + visit_count + price + as.factor(mon)+ as.factor(is_campaign)'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction7:=forecasted$forecast]
+
+# arima model with auto.arima
+arima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count')
+forecast_data[,arima_prediction:=arima_forecast$forecast]
+
+
+# refit sarima models every 7 days
+if((i-1) %% 30 == 0){
+  # sarima model with auto.arima
+  sarima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count',
+                                               is_seasonal=T,seasonality_period=7)
+  
+} else {
+  sarima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count',
+                                               is_seasonal=T,seasonality_period=7,fitted_model=sarima_forecast$model) 
+}
+forecast_data[,sarima_prediction:=sarima_forecast$forecast]
+
+
+
+#selected arima
+ts_train<-ts(past_data$sold_count,freq=7, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+final<-arima(detrend,order=c(3,0,4))
+predicted <- predict(final, h=1)$pred
+last_trend <-tail(trend[!is.na(trend)],1)
+seasonality <- head(tail(seasonal,8),1)
+predicted_actual <- as.numeric(predicted) + as.numeric(last_trend) + as.numeric(seasonality)
+
+forecast_data[,selected_arima:=predicted_actual]
+
+results[[i]]=forecast_data
+
+}
+
+```
+
+```{r performance measures for product 6676673, include=TRUE,echo=FALSE,warning=FALSE}
+overall_results=rbindlist(results)
+
+
+melted_result=melt(overall_results,c("event_date","sold_count"),c("lm_prediction2","lm_prediction3","lm_prediction4","lm_prediction5","lm_prediction6","lm_prediction7","arima_prediction","sarima_prediction","selected_arima"))
+
+setDT(melted_result)
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+  geom_boxplot() 
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+  geom_boxplot() 
+
+```
+
+Smallest Weighted Mean Absolute Percentage Error is obtained for the linear regression model 'sold_count~basket_count + visit_count + as.factor(mon)+ as.factor(is_campaign)', so further on this model is selected for our prediction purposes.
+
+For conclusion, here is a plot of actual test set and predicted values of chosen model. As it can be seen, the predictions are pretty accurate.
+
+```{r Selected Model Product 6676673, include=TRUE, echo=FALSE}
+
+test <- data_6676673[data_6676673$event_date<=tail(test_dates,1)&data_6676673$event_date>=head(test_dates,1),]
+myvalues <- xts(x = data.frame(overall_results$lm_prediction6, test$sold_count), order.by = test_dates, frequency = 7)
+colnames(myvalues) <- c("Prediction", "Real Values")
+plot(myvalues, main = "Predictions and Real Values", legend.loc = "bottomleft")
+
+```
+## One Day Ahead Prediction with the Selected Model for Product 3
+
+With the selected model, 1 day ahead prediction can be performed using all the data on hand, since in this competition one day ahead prediction should be submitted.
+```{r  Selected Model for Product 6676673, include=TRUE, echo=FALSE}
+tail(data_6676673,1)
+
+next_forecast <- tail(data_6676673,1)
+next_forecast[,event_date:= event_date + 2]
+next_forecast[, is_campaign:=0]
+
+fmla='sold_count~basket_count + visit_count + as.factor(mon)+ as.factor(is_campaign)'
+forecasted=forecast_with_lr(fmla,data_6676673,next_forecast)
+next_forecast[,lm_prediction:=forecasted$forecast]
+next_forecast
+
+```
+
+
+
+
+# PRODUCT 4 - Fakir Vacuum Cleaner
+
+
+```{r  Add Product 7061886 Data, include=FALSE, echo=FALSE}
+data_7061886 <- rawdata[rawdata$product_content_id==7061886,]
+
+data_7061886$favored_count[data_7061886$favored_count == 0] <- mean(data_7061886$favored_count[data_7061886$favored_count !=0])
+data_7061886$category_basket[data_7061886$category_basket == 0] <- mean(data_7061886$category_basket[data_7061886$category_basket !=0])
+data_7061886$category_brand_sold[data_7061886$category_brand_sold == 0] <- mean(data_7061886$category_brand_sold[data_7061886$category_brand_sold !=0])
+data_7061886$ty_visits[data_7061886$ty_visits == 1] <- mean(data_7061886$ty_visits[data_7061886$ty_visits !=1])
+data_7061886$visit_count[data_7061886$visit_count == 0] <- mean(data_7061886$visit_count[data_7061886$visit_count !=0])
+
+
+```
+
+At below,looking at the plots of the product; in line graph it can be observed that the sales have variance, in some dates the plot has high outliers and also there might be a cyclical behaviour which is an indicator for seasonality. For further investigation, '3 Months Sales of 2021' plot can be examined, there is not clear repeating pattern that can be easily observed.
+
+Looking at the boxplots; in the weekly boxplot the sales is weekdays seem to be similar, daily and weekly seasonaity can be investigated. 
+In monthly boxplot, there is change with respect to months, there is no clear repeating monthly behaviour.
+In histograms, one can observe that the sales' distribution is close to normal distribution.
+
+
+```{r  Plots for Product 7061886, include=TRUE, echo=FALSE}
+for(i in 4){
+  
+  
+  g1 <-ggplot(products[[i]], aes( x = event_date, y = sold_count)) + geom_line() + ggtitle(paste("product",i)) +theme_minimal()  
+  g2 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(w_day))) + geom_boxplot() + 
+    ggtitle(paste("product",i))+ theme_minimal() 
+  g3 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(mon))) + geom_boxplot()+
+    ggtitle(paste("product",i))+ theme_minimal() 
+  g4 <- ggplot(products[[i]], aes( x = sold_count)) + geom_histogram() + ggtitle(paste("product",i)) + theme_minimal()+
+    facet_wrap(~factor(w_day))
+  g5 <-ggplot(products[[i]], aes( x = sold_count )) + geom_histogram() + theme_minimal()+ ggtitle(paste("product",i))
+  facet_wrap(~factor(mon))
+  
+  
+  print(g1)
+  print(g2)
+  print(g3)
+  print(g4)
+  print(g5)
+  
+}
+
+ggplot(data_7061886[event_date<='2021-05-29' & event_date>='2021-03-01'] ,aes(x=event_date,y=sold_count)) + geom_line(color="darkolivegreen4") +  theme_light()+labs(x = "3 months of 2021",
+       y = "Sales Quantity of the Product")
+
+
+```
+
+## Trying Different ARIMA Models for Product 4 - 7061886
+
+Firstly, different ARIMA models can be built in order to test different models on the test set. 30 and 7 day frequency can be selected and the data can be decomposed accordingly.  Since variance don't seem to be increasing, additive type of decomposition can be used for decomposition. Below, the random series can be seen.
+
+```{r decomposition weekly product 4, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_7061886$sold_count,freq=7, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 7)
+plot1 <- autoplot(tsdeseasonalize, col = "black")+  
+  theme_light()
+plot3 <- ggAcf(deseasonalize, lag.max=400,  col = "black") + theme_light()
+
+grid.arrange(plot1, plot3)
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 7)
+plot2 <- autoplot(tsdetrend, col = "black")+  
+  theme_light()
+
+plot4 <- ggAcf(detrend, lag.max=400,  col = "black") +  theme_light()
+grid.arrange(plot2, plot4)
+
+
+```
+
+```{r decomposition monthly product 4, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_7061886$sold_count,freq=30, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 30)
+plot1 <- autoplot(tsdeseasonalize, col = "black")+  
+  theme_light()
+plot3 <- ggAcf(deseasonalize, lag.max=400,  col = "black") + theme_light()
+
+grid.arrange(plot1, plot3)
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 30)
+plot2 <- autoplot(tsdetrend, col = "black")+  
+  theme_light()
+
+plot4 <- ggAcf(detrend, lag.max=400,  col = "black") +  theme_light()
+grid.arrange(plot2, plot4)
+
+
+```
+The above decomposition series belong to time series with 7 and 30 days frequency, respectively.
+Looking at the ACF plot of the series, highest ACF value belongs to lag 16, so time series decomposition with 16 day frequency would be sufficient.
+
+```{r plot acf product 4, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plotacf <- ggAcf(data_7061886$sold_count, lag.max=80,  col = "coral4") + theme_light()
+grid.arrange(plotacf)
+
+```
+
+
+
+```{r decomposition product 4, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_6676673$sold_count,freq=16, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 16)
+plot1 <- autoplot(tsdeseasonalize, col = "black")+  
+  theme_light()
+plot3 <- ggAcf(deseasonalize, lag.max=400,  col = "black") + theme_light()
+
+grid.arrange(plot1, plot3)
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 16)
+plot2 <- autoplot(tsdetrend, col = "black")+  
+  theme_light()
+
+plot4 <- ggAcf(detrend, lag.max=400,  col = "black") +  theme_light()
+grid.arrange(plot2, plot4)
+
+
+```
+
+In this case, the random part of the decomposed time series with 16 day frequency seem to be closer to randomly distributed series with mean zero and std dev 1, so it is chosen as the final decomposition.
+
+ 
+```{r choose product 4, echo=FALSE, message=FALSE, warning=FALSE}
+plot5 <- ggAcf(detrend, lag.max=15,  col = "maroon1") +  
+  theme_light()
+plot6 <- ggAcf(detrend, lag.max=15,  col = "maroon1", type=c("partial")) +  
+  theme_light()
+grid.arrange(plot5, plot6)
+```
+
+Looking at the ACF, for 'q' value 5 or 7 may be selected and looking at the PACF, for 'p' value 1 or 3 may be selected. Also, auto.arima function is used as well. The AIC and BIC values of models that are suggested can be seen below. So, looking at AIC and BIC values, ARIMA(3,0,5) model that is selected with observing the ACF and PACF plots, ARIMA(3,0,5) model's AIC value is smaller than the ARIMA(1,0,2) model's AIC value which is suggested by auto arima. For performance comparison with linear models, ARIMA(3,0,5) will be used.
+
+```{r try product 4, echo=FALSE, message=FALSE, warning=FALSE}
+library(stats)
+
+model1 <- arima(detrend, order=c(3,0,7))
+print(model1)
+AIC(model1)
+BIC(model1)
+model2 <- arima(detrend, order=c(3,0,5))
+print(model2)
+AIC(model2)
+BIC(model2)
+model3 <- arima(detrend, order=c(1,0,5))
+print(model3)
+AIC(model3)
+BIC(model3)
+
+final=auto.arima(detrend, seasonal=FALSE, trace=T)
+print(final)
+AIC(final)
+BIC(final)
+
+final = arima(detrend, order=c(3,0,5))
+
+```
+## Trying Different Linear Regression Models For Product 4
+
+Below, you can see the correlations between the attributes. According to this matrix, basket_count, category_favored, is_campaign and category_sold can be added to the model, with different combinations. Since ,above, in the box plots, it has been observed that there is monthly change in the data, so month information can also be added to the candidate models.
+
+
+```{r Corr Plot for Product 7061886, include=TRUE, echo=FALSE, warning=FALSE}
+
+ggcorrplot(corr = cor(data_7061886[,-c(3,2)]),hc.order = TRUE, type = "upper",lab = TRUE, title = "Correlation Matrix", show.legend = TRUE)
+
+
+```
+
+## Comparison of the Linear Regression and ARIMA Models for Product 4
+
+Different linear regression models and ARIMA models' performance on the test dates will be calculated and according to their performance, best model can be selected.
+
+```{r  Different Models for Product 7061886, include=FALSE, echo=FALSE, warning=FALSE}
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+  current_date=test_dates[i]-forecast_ahead
+  
+  past_data=data_7061886[event_date<=current_date]
+  forecast_data=data_7061886[event_date==test_dates[i]]
+  
+  # first lm models
+  fmla='sold_count~basket_count +as.factor(mon)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction1:=forecasted$forecast]
+  
+  fmla='sold_count~basket_count + category_sold + as.factor(mon)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction2:=forecasted$forecast]
+  
+  
+  fmla='sold_count~basket_count + category_sold + as.factor(mon)+ category_favored'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction3:=forecasted$forecast]
+  
+  fmla='sold_count~basket_count + category_sold + as.factor(mon)+ category_favored + as.factor(is_campaign)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction4:=forecasted$forecast]
+  
+  fmla='sold_count~basket_count +as.factor(mon) + as.factor(is_campaign)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction5:=forecasted$forecast]
+  
+  fmla='sold_count~basket_count + category_sold + as.factor(mon) + as.factor(is_campaign)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction6:=forecasted$forecast]
+  
+  
+  # arima model with auto.arima
+  arima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count')
+  forecast_data[,arima_prediction:=arima_forecast$forecast]
+  
+  
+  if((i-1) %% 30 == 0){
+    # sarima model with auto.arima
+    sarima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count',
+                                                 is_seasonal=T,seasonality_period=16)
+    
+  } else {
+    sarima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count',
+                                                 is_seasonal=T,seasonality_period=16,fitted_model=sarima_forecast$model) 
+  }
+  forecast_data[,sarima_prediction:=sarima_forecast$forecast]
+  
+  #selected arima
+ts_train<-ts(past_data$sold_count,freq=16, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+final<-arima(detrend,order=c(3,0,5))
+predicted <- predict(final, h=1)$pred
+last_trend <-tail(trend[!is.na(trend)],1)
+seasonality <- head(tail(seasonal,17),1)
+predicted_actual <- as.numeric(predicted) + as.numeric(last_trend) + as.numeric(seasonality)
+
+forecast_data[,selected_arima:=predicted_actual]
+  
+  results[[i]]=forecast_data
+}
+
+
+
+```
+
+
+```{r performance measures for product 7061886, include=TRUE,echo=FALSE,warning=FALSE}
+
+overall_results=rbindlist(results)
+
+
+melted_result=melt(overall_results,c("event_date","sold_count"),c("lm_prediction1","lm_prediction2","lm_prediction3","lm_prediction4","lm_prediction5","lm_prediction6","arima_prediction","sarima_prediction","selected_arima"))
+
+setDT(melted_result)
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+  geom_boxplot() 
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+  geom_boxplot() 
+```
+Smallest Weighted Mean Absolute Percentage Error is obtained for the linear regression model 'sold_count~basket_count +as.factor(mon)',but, since it has 2 input attributes, when one of them increases slightly, its effect will be much more impactful, so it has been chosen to continue with the model that has second smallest WMAPE , ARIMA(1,1,4) with decomposed series with 16 day frequency,and it is the model that auto arima suggested. So further on this model is selected for our prediction purposes.
+
+For conclusion, here is a plot of actual test set and predicted values of chosen model. As it can be seen, the predictions are not too far.
+
+
+```{r Selected Model Product 7061886, include=TRUE, echo=FALSE}
+
+test <- data_7061886[data_7061886$event_date<=tail(test_dates,1)&data_7061886$event_date>=head(test_dates,1),]
+myvalues <- xts(x = data.frame(overall_results$sarima_prediction, test$sold_count), order.by = test_dates, frequency = 7)
+colnames(myvalues) <- c("Prediction", "Real Values")
+plot(myvalues, main = "Predictions and Real Values", legend.loc = "bottomleft")
+
+```
+
+## One Day Ahead Prediction with the Selected Model for Product 4
+
+With the selected model, 1 day ahead prediction can be performed using all the data on hand, since in this competition one day ahead prediction should be submitted.
+
+```{r  Selected Model for Product 7061886, include=TRUE, echo=FALSE}
+#selected model ARIMA(1,1,4)
+
+#next_forecast[, is_campaign:=0]
+next_forecast <- tail(data_7061886,1)
+next_forecast[,event_date:= event_date + 2]
+
+ts_data_7061886 <- ts(data=data_7061886$sold_count, frequency = 16)
+
+ts_decomposed_7061886=decompose(ts_data_7061886, type="additive")
+acf(data_7061886$sold_count)
+pacf(data_7061886$sold_count)
+
+
+unt_test3=ur.kpss(ts_decomposed_7061886$random) 
+summary(unt_test3)
+
+deseasonalized1 <- (ts_data_7061886 - ts_decomposed_7061886$seasonal)
+
+
+detrend1<-(deseasonalized1 - ts_decomposed_7061886$trend)
+
+library(stats)
+model1 <- arima(detrend1, order=c(1,1,4), xreg = data_7061886$is_campaign)
+print(model1)
+AIC(model1)
+BIC(model1)    
+
+
+model_fitted1 <- detrend1 - residuals(model1)
+
+prediction <- predict(model1, n.ahead = 1, newxreg = 0)
+
+last_trend_value <-tail(ts_decomposed_7061886$trend[!is.na(ts_decomposed_7061886$trend)],1)
+
+
+last_seasonality <- ts_decomposed_7061886$seasonal[6]
+my_model <- prediction$pred + last_trend_value + last_seasonality
+
+next_forecast[,arima1_prediction := my_model]
+
+next_forecast
+
+
+```
+
+
+# PRODUCT 5 - TrendyolMilla Tights
+
+
+```{r  Add Product 31515569 Data, include=FALSE, echo=FALSE}
+data_31515569 <- rawdata[rawdata$product_content_id==31515569,]
+
+data_31515569$favored_count[data_31515569$favored_count == 0] <- mean(data_31515569$favored_count[data_31515569$favored_count !=0])
+data_31515569$category_basket[data_31515569$category_basket == 0] <- mean(data_31515569$category_basket[data_31515569$category_basket !=0])
+data_31515569$category_brand_sold[data_31515569$category_brand_sold == 0] <- mean(data_31515569$category_brand_sold[data_31515569$category_brand_sold !=0])
+data_31515569$ty_visits[data_31515569$ty_visits == 1] <- mean(data_31515569$ty_visits[data_31515569$ty_visits !=1])
+data_31515569$visit_count[data_31515569$visit_count == 0] <- mean(data_31515569$visit_count[data_31515569$visit_count !=0])
+
+
+
+
+```
+At below,looking at the plots of the product; in line graph it can be observed that the sales have increasing variance, in some dates the plot has high outliers and also there might be a cyclical behaviour which is an indicator for seasonality. For further investigation, '3 Months Sales of 2021' plot can be examined, there is not clear repeating pattern that can be easily observed.
+
+Looking at the boxplots; in the weekly boxplot the sales is weekdays seem to be similar, daily and weekly seasonaity can be investigated. 
+In monthly boxplot, there is change with respect to months, however median of the months seem to be close to each other, this may be an indicator for monthly seasonality.
+In histograms, one can observe that the sales' distribution is close to normal distribution.
+
+
+```{r  Plots for Product 31515569, include=TRUE, echo=FALSE}
+for(i in 5){
+  
+  
+  g1 <-ggplot(products[[i]], aes( x = event_date, y = sold_count)) + geom_line() + ggtitle(paste("product",i)) +theme_minimal()  
+  g2 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(w_day))) + geom_boxplot() + 
+    ggtitle(paste("product",i))+ theme_minimal() 
+  g3 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(mon))) + geom_boxplot()+
+    ggtitle(paste("product",i))+ theme_minimal() 
+  g4 <- ggplot(products[[i]], aes( x = sold_count)) + geom_histogram() + ggtitle(paste("product",i)) + theme_minimal()+
+    facet_wrap(~factor(w_day))
+  g5 <-ggplot(products[[i]], aes( x = sold_count )) + geom_histogram() + theme_minimal()+ ggtitle(paste("product",i))
+  facet_wrap(~factor(mon))
+  
+  
+  print(g1)
+  print(g2)
+  print(g3)
+  print(g4)
+  print(g5)
+  
+}
+
+ggplot(data_31515569[event_date<='2021-05-29' & event_date>='2021-03-01'] ,aes(x=event_date,y=sold_count)) + geom_line(color="darkolivegreen4") +  theme_light()+labs(x = "3 months of 2021",
+       y = "Sales Quantity of the Product")
+
+
+```
+
+
+## Trying Different ARIMA Models for Product 5 - 31515569 
+
+Firstly, different ARIMA models can be built in order to test different models on the test set. 30 and 7 day frequency can be selected and the data can be decomposed accordingly.  Since variance  seem to be increasing, multiplicative type of decomposition can be used for decomposition. Below, the random series can be seen.
+
+
+```{r decomposition weekly product 5, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_31515569$sold_count,freq=7, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="multiplicative")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train/seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 7)
+plot1 <- autoplot(tsdeseasonalize, col = "black")+  
+  theme_light()
+plot3 <- ggAcf(deseasonalize, lag.max=400,  col = "black") + theme_light()
+
+grid.arrange(plot1, plot3)
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize/trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 7)
+plot2 <- autoplot(tsdetrend, col = "black")+  
+  theme_light()
+
+plot4 <- ggAcf(detrend, lag.max=400,  col = "black") +  theme_light()
+grid.arrange(plot2, plot4)
+
+
+```
+
+```{r decomposition monthly product 5, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_31515569$sold_count,freq=30, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="multiplicative")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train/seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 30)
+plot1 <- autoplot(tsdeseasonalize, col = "black")+  
+  theme_light()
+plot3 <- ggAcf(deseasonalize, lag.max=400,  col = "black") + theme_light()
+
+grid.arrange(plot1, plot3)
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize/trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 30)
+plot2 <- autoplot(tsdetrend, col = "black")+  
+  theme_light()
+
+plot4 <- ggAcf(detrend, lag.max=400,  col = "black") +  theme_light()
+grid.arrange(plot2, plot4)
+
+
+```
+
+The above decomposition series belong to time series with 7 and 30 days frequency, respectively.
+Looking at the ACF plot of the series, highest ACF value belongs to lag 16, so time series decomposition with 16 day frequency would be sufficient.
+
+```{r plot acf product 5, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plotacf <- ggAcf(data_31515569$sold_count, lag.max=80,  col = "coral4") + theme_light()
+grid.arrange(plotacf)
+
+```
+
+
+```{r decomposition product 5, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ts_train<-ts(data_31515569$sold_count,freq=16, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="multiplicative")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train/seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 16)
+plot1 <- autoplot(tsdeseasonalize, col = "black")+  
+  theme_light()
+plot3 <- ggAcf(deseasonalize, lag.max=400,  col = "black") + theme_light()
+
+grid.arrange(plot1, plot3)
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize/trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 16)
+plot2 <- autoplot(tsdetrend, col = "black")+  
+  theme_light()
+
+plot4 <- ggAcf(detrend, lag.max=400,  col = "black") +  theme_light()
+grid.arrange(plot2, plot4)
+
+
+```
+
+In this case, the random part of the decomposed time series with 16 day frequency seem to be closer to randomly distributed series with mean zero and std dev 1, so it is chosen as the final decomposition.
+
+
+```{r choose product 5, echo=FALSE, message=FALSE, warning=FALSE}
+plot5 <- ggAcf(detrend, lag.max=15,  col = "maroon1") +  
+  theme_light()
+plot6 <- ggAcf(detrend, lag.max=15,  col = "maroon1", type=c("partial")) +  
+  theme_light()
+grid.arrange(plot5, plot6)
+```
+
+Looking at the ACF, for 'q' value 2,5 or 8 may be selected and looking at the PACF, for 'p' value 3 or 4 may be selected. Also, auto.arima function is used as well. The AIC and BIC values of models that are suggested can be seen below. So, looking at AIC and BIC values, ARIMA(3,0,5) model that is selected with observing the ACF and PACF plots, ARIMA(3,0,5) model's AIC value is smaller than the ARIMA(1,0,3) model's AIC value which is suggested by auto arima. For performance comparison with linear models, ARIMA(3,0,5) will be used.
+ARIMA(3,0,5) best.
+
+```{r try product 5, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(stats)
+
+model1 <- arima(detrend, order=c(3,0,0))
+print(model1)
+AIC(model1)
+BIC(model1)
+model2 <- arima(detrend, order=c(3,0,2))
+print(model2)
+AIC(model2)
+BIC(model2)
+model3 <- arima(detrend, order=c(3,0,5))
+print(model3)
+AIC(model3)
+BIC(model3)
+model4 <- arima(detrend, order=c(3,0,8))
+print(model4)
+AIC(model4)
+BIC(model4)
+
+
+
+final=auto.arima(detrend, seasonal=FALSE, trace=T)
+print(final)
+AIC(final)
+BIC(final)
+
+final = arima(detrend, order=c(3,0,5))
+
+```
+## Trying Different Linear Regression Models For Product 5
+
+Below, you can see the correlations between the attributes. According to this matrix, basket_count, favored_count, is_campaign and category_sold can be added to the model, with different combinations. Since ,above, in the box plots, it has been observed that there is monthly change in the data, so month information can also be added to the candidate models.
+
+
+```{r Corr Plot for Product 31515569, include=TRUE, echo=FALSE}
+
+ggcorrplot(corr = cor(data_31515569[,-c(3,2)]),hc.order = TRUE, type = "upper",lab = TRUE, title = "Correlation Matrix", show.legend = TRUE)
+
+
+```
+
+## Comparison of the Linear Regression and ARIMA Models for Product 5
+
+Different linear regression models and ARIMA models' performance on the test dates will be calculated and according to their performance, best model can be selected.
+
+```{r  Different Models for Product 31515569 , include=TRUE, echo=FALSE, warning=FALSE}
+
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+  current_date=test_dates[i]-forecast_ahead
+  
+  past_data=data_31515569[event_date<=current_date]
+  forecast_data=data_31515569[event_date==test_dates[i]]
+  
+  # first lm models
+  
+  
+  fmla='sold_count~basket_count + category_sold + as.factor(mon)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction2:=forecasted$forecast]
+  
+  
+  fmla='sold_count~basket_count + category_sold + as.factor(mon)+ category_favored'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction3:=forecasted$forecast]
+  
+  fmla='sold_count~basket_count + category_sold + as.factor(mon)+ category_favored + as.factor(is_campaign)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction4:=forecasted$forecast]
+  
+  fmla='sold_count~basket_count +as.factor(mon) + as.factor(is_campaign)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction5:=forecasted$forecast]
+  
+  fmla='sold_count~basket_count + category_sold + as.factor(mon) + as.factor(is_campaign)'
+  forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+  forecast_data[,lm_prediction6:=forecasted$forecast]
+  
+  
+  
+  
+  
+  # arima model with auto.arima
+  arima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count')
+  forecast_data[,arima_prediction:=arima_forecast$forecast]
+  
+  # refit sarima models every 7 days
+  if((i-1) %% 30 == 0){
+    # sarima model with auto.arima
+    sarima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count',
+                                                 is_seasonal=T,seasonality_period=16)
+    
+  } else {
+    sarima_forecast=forecast_with_arima_extended(past_data,forecast_ahead,'sold_count',
+                                                 is_seasonal=T,seasonality_period=16,fitted_model=sarima_forecast$model) 
+  }
+  forecast_data[,sarima_prediction:=sarima_forecast$forecast]
+  
+   #selected arima
+ts_train<-ts(past_data$sold_count,freq=16, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="multiplicative")
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train/seasonal
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize/trend
+final<-arima(detrend,order=c(3,0,5))
+predicted <- predict(final, h=1)$pred
+last_trend <-tail(trend[!is.na(trend)],1)
+seasonality <- head(tail(seasonal,17),1)
+predicted_actual <- as.numeric(predicted) * as.numeric(last_trend) * as.numeric(seasonality)
+
+forecast_data[,selected_arima:=predicted_actual]
+  
+  results[[i]]=forecast_data
+}
+
+```
+
+```{r performance measures for product 5, include=TRUE,warning=FALSE,echo=FALSE}
+overall_results=rbindlist(results)
+
+
+melted_result=melt(overall_results,c("event_date","sold_count"),c("lm_prediction2","lm_prediction3","lm_prediction4","lm_prediction5","lm_prediction6","arima_prediction","sarima_prediction","selected_arima"))
+
+setDT(melted_result)
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+  geom_boxplot() 
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+  geom_boxplot() 
+
+
+```
+Smallest Weighted Mean Absolute Percentage Error is obtained for ARIMA(0,0,4) with 16 day frequency decomposition ,and it is the model that auto arima suggested. So further on this model is selected for our prediction purposes.
+
+For conclusion, here is a plot of actual test set and predicted values of chosen model. As it can be seen, the predictions are are not too far.
+
+
+
+```{r Selected Model Product 31515569, include=TRUE, echo=FALSE}
+
+test <- data_31515569[data_31515569$event_date<=tail(test_dates,1)&data_31515569$event_date>=head(test_dates,1),]
+myvalues <- xts(x = data.frame(overall_results$sarima_prediction, test$sold_count), order.by = test_dates, frequency = 7)
+colnames(myvalues) <- c("Prediction", "Real Values")
+plot(myvalues, main = "Predictions and Real Values", legend.loc = "bottomleft")
+
+```
+
+
+## One Day Ahead Prediction with the Selected Model for Product 5
+
+With the selected model, 1 day ahead prediction can be performed using all the data on hand, since in this competition one day ahead prediction should be submitted.
+
+```{r  Selected Model for Product 31515569, include=TRUE, echo=FALSE}
+#selected model is ARIMA(0,0,4) with 16 day freq
+
+tail(data_31515569,1)
+#next_forecast[, is_campaign:=0]
+next_forecast <- tail(data_31515569,1)
+next_forecast[,event_date:= event_date + 2]
+
+
+unt_test1=ur.kpss(data_31515569$sold_count) 
+summary(unt_test1)
+
+
+
+ts_data_31515569 <- ts(data=data_31515569$sold_count, frequency = 16)
+
+ts_decomposed_31515596=decompose(ts_data_31515569, type="multiplicative")
+plot(ts_decomposed_31515596)
+
+acf(data_31515569$sold_count)
+pacf(data_31515569$sold_count)
+
+
+unt_test3=ur.kpss(ts_decomposed_31515596$random) 
+summary(unt_test3)
+
+deseasonalized2 <- (ts_data_31515569 / ts_decomposed_31515596$seasonal)
+
+
+detrend2 <-(deseasonalized2 / ts_decomposed_31515596$trend)
+
+
+ts.plot(detrend2, main="Detrended Series")
+
+acf(detrend2, na.action = na.pass, main="ACF of Deseasonlized and Detrended Series ")
+pacf(detrend2, na.action = na.pass, main="PACF of Deseasonlized and Detrended Seriesy")
+
+
+
+
+library(stats)
+model2 <- arima(detrend2, order=c(0,0,4), include.mean = TRUE, xreg= data_31515569$is_campaign)
+print(model2)
+AIC(model2)
+BIC(model2)    
+
+
+model_fitted2 <- detrend2 - residuals(model2)
+
+prediction <- predict(model2, n.ahead = 1, newxreg = 0)
+
+last_trend_value <-tail(ts_decomposed_31515596$trend[!is.na(ts_decomposed_31515596$trend)],1)
+
+
+last_seasonality <- ts_decomposed_31515596$seasonal[c(6)]
+
+
+my_model <- prediction$pred * last_trend_value * last_seasonality
+
+my_model
+
+next_forecast[,arima1_prediction := my_model]
+next_forecast
+
+
+```
+
+# PRODUCT 6 - TrendyolMilla Bikini Top
+
+
+```{r product6, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+product6 <- products[[6]]
+setDT(product6)
+product6[is.na(price)==T, price:= 0]
+product6$price[product6$price == 0] <- mean(product6$price[product6$price !=0])
+product6$basket_count[product6$basket_count == 0] <- mean(product6$basket_count[product6$basket_count !=0])
+product6$favored_count[product6$favored_count == 0] <- mean(product6$favored_count[product6$favored_count !=0])
+product6$sold_count[product6$sold_count == 0] <- mean(product6$sold_count[product6$sold_count !=0])
+product6$visit_count[product6$visit_count == 0] <- mean(product6$visit_count[product6$visit_count !=0])
+product6$category_favored[product6$category_favored == 0] <- mean(product6$category_favored[product6$category_favored !=0])
+product6$category_sold[product6$category_sold == 0] <- mean(product6$category_sold[product6$category_sold !=0])
+product6$category_visits[product6$category_visits == 0] <- mean(product6$category_visits[product6$category_visits !=0])
+product6$category_basket[product6$category_basket == 0] <- mean(product6$category_basket[product6$category_basket !=0])
+product6$category_brand_sold[product6$category_brand_sold == 0] <- mean(product6$category_brand_sold[product6$category_brand_sold !=0])
+product6$ty_visits[product6$ty_visits == 0] <- mean(product6$ty_visits[product6$ty_visits !=0])
+
+
+train <- product6[product6$event_date <= as.Date("2021-05-28")]
+test <- product6[product6$event_date > as.Date("2021-05-28") & product6$event_date <= as.Date("2021-06-11")]
+
+test_start=as.Date("2021-05-29")
+test_end=as.Date("2021-06-11")
+test_dates=seq(test_start,test_end,by='day')
+
+
+```
+
+Before making forecasting models for product 6,  it should be looked at the plot of data and examined the seasonalities and trend. Below, you can see the plot of sales quantity of Product 6.For the empty places in sold counts, the mean of the data is taken. There is a slightly increasing trend, especially in the beginning and end of the plot. There can't be seen any significant seasonality. To look further, there is a plot of 3 months of 2021 - March, April and May -. Again, the seasonality isn't significant. In conclusion, it can be said that there is no seasonality.
+
+```{r plots6, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+ggplot(train,aes(x=event_date,y=sold_count)) + geom_line(color="brown2") +  theme_light()+labs(x = "Date",
+       y = "Sales Quantity of the Product") + geom_smooth(color="black", linetype="longdash", se = FALSE)
+
+ggplot(train[event_date<='2021-05-29' & event_date>='2021-03-01'] ,aes(x=event_date,y=sold_count)) + geom_line(color="darkolivegreen4") +  theme_light()+labs(x = "3 months of 2021",
+       y = "Log of Sales Quantity of the Product")
+```
+
+### Linear Regression Model For Product 6
+
+First type of model that is going to used is linear regression model. First of all, it would be wise to select attributes that will help to model from correlation matrix. Below, you can see the correlations between the attributes. According to this matrix, just basket_count can be added to the model. 
+
+```{r correlation6, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+data <- train [, -c(2,3)]
+ggcorrplot(corr = cor(data),hc.order = TRUE, type = "upper",lab = TRUE, title = "Correlation Matrix", colors = c("darkolivegreen1","darkolivegreen3","darkolivegreen4"), show.legend = FALSE, lab_size = 3)
+
+
+```
+
+In the first model, the attribute is added to the model. The adjusted R-squared value indicates whether model is good or not. The value for the first model is pretty high which is a good sign. But there are outliers which is probably due to campaigns and holidays. The outliers can be eliminated for a better model. Lastly, 'lag1' attribute can be added because it is very high in the ACF. In the final linear regression model, adjusted R-squared value is high enough and plots are good enough to make predictions.
+
+```{r linear6, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+
+sold=data.table(sold_count=as.numeric(train$sold_count))
+sold=cbind(sold, basket_count=as.numeric(train$basket_count))
+fit <- lm(sold_count ~ basket_count, data=sold)
+summary(fit)
+checkresiduals(fit)
+
+box1 <- ggplot(data = train,aes(x = event_date, y = sold_count))
+box1 + geom_boxplot(aes(y = sold_count), fill = "lightskyblue1") + theme_light()
+
+sold1=data.table(sold_count=as.numeric(train$sold_count))
+summary(sold1)
+sold[sold_count< 30.71 ,small_outlier:= 1]
+sold[is.na(small_outlier)==T,small_outlier:=0]
+sold[sold_count> 34.15 ,big_outlier:= 1]
+sold[is.na(big_outlier)==T,big_outlier:=0]
+fit2 <- lm(sold_count ~ big_outlier + small_outlier + basket_count, data=sold)
+summary(fit2)
+checkresiduals(fit2)
+
+lag1=shift(residuals(fit2),1)
+sold=cbind(sold,lag1)
+sold[is.na(lag1)==T,lag1:=0]
+fit3 <- lm(sold_count ~ lag1  + big_outlier  + small_outlier + basket_count, data=sold)
+summary(fit3)
+checkresiduals(fit3)
+
+
+```
+
+### Arima Model For Product 6
+
+Second type of model that is going to build is ARIMA model. For this model, in the beginning, the data should be decomposed. Firstly, a frequency value should be chosen. Since there is no significant seasonality, the highest value in the ACF will be chosen which is 9. Additive type of decomposition will be used for this task. Below, the random series can be seen.
+
+```{r decomposition6, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plotacf <- ggAcf(train$sold_count, lag.max=80,  col = "coral4") + theme_light()
+grid.arrange(plotacf)
+
+ts_train<-ts(train$sold_count,freq=9, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+plot(ts_train_dec)
+
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+
+tsdeseasonalize <- ts(deseasonalize, start = c(1,1), frequency = 9)
+
+
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+
+tsdetrend <- ts(detrend, start = c(1,1), frequency = 9)
+
+
+```
+
+After the decomposition, (p,d,q) values should be chosen for the model. For this task, ACF and PACF will be examined. Looking at the ACF, for 'q' value 3 can be chosen and looking at the PACF, for 'p' value 3 or 6 can be chosen. Also, auto.arima function is used as well. The AIC and BIC values of models that are suggested can be seen below. Looking at AIC and BIC values, (6,0,3) model is best among them. After the model is selected, the regressors that most correlates with the sold count are added to model to make it better. In the final model, the AIC and BIC values are lower. We can proceed with this model.
+
+```{r arima6, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+plot5 <- ggAcf(detrend, lag.max=15,  col = "maroon1") +  
+  theme_light()
+plot6 <- ggAcf(detrend, lag.max=15,  col = "maroon1", type=c("partial")) +  
+  theme_light()
+grid.arrange(plot5, plot6)
+
+library(stats)
+
+model1 <- arima(detrend, order=c(3,0,3))
+print(model1)
+AIC(model1)
+BIC(model1)
+model2 <- arima(detrend, order=c(6,0,3))
+print(model2)
+AIC(model2)
+BIC(model2)
+
+final=auto.arima(detrend, seasonal=FALSE, trace=F)
+print(final)
+AIC(final)
+BIC(final)
+#(0,0,1)
+
+xreg <- train$basket_count
+model3 <- arima(detrend, order=c(6,0,3), xreg= xreg)
+print(model3)
+AIC(model3)
+BIC(model3)
+```
+
+### Comparison Of Models
+
+We selected two models for prediction. Here, it can be seen their accuracy values. According to box plot, the weighted mean absolute errors for Arima model is higher. We should choose Linear model because WMAPE value of the model is lower which is a sign for better model.
+
+```{r Different Models6, echo=FALSE, message=FALSE, warning=FALSE}
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+
+for(i in 1:length(test_dates)){
+current_date=test_dates[i]-forecast_ahead
+
+past_data=product6[event_date<=current_date]
+forecast_data=product6[event_date==test_dates[i]]
+
+
+# first lm model
+past_data[sold_count> 34.15 ,big_outlier:= 1]
+past_data[is.na(big_outlier)==T,big_outlier:=0]
+past_data[sold_count< 30.71 ,small_outlier:= 1]
+past_data[is.na(small_outlier)==T,small_outlier:=0]
+fit2 <- lm(sold_count ~ big_outlier + small_outlier + basket_count, data=past_data)
+lag1=shift(residuals(fit2),1)
+past_data=cbind(past_data,lag1)
+past_data[is.na(lag1)==T,lag1:=0]
+forecast_data[,lag1:=tail(past_data$lag1,1)]
+forecast_data[sold_count> 34.15 ,big_outlier:= 1]
+forecast_data[is.na(big_outlier)==T,big_outlier:=0]
+forecast_data[sold_count< 30.71, small_outlier:= 1]
+forecast_data[is.na(small_outlier)==T,small_outlier:=0]
+
+fmla='sold_count ~ lag1  + big_outlier  + small_outlier + basket_count'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction:=forecasted$forecast]
+
+
+#selected arima
+ts_train<-ts(past_data$sold_count,freq=9, start=c(1,1))
+ts_train_dec<-decompose(ts_train,type="additive")
+seasonal<- ts_train_dec$seasonal
+deseasonalize<-ts_train-seasonal
+trend <- ts_train_dec$trend
+random <- ts_train_dec$random
+detrend<-deseasonalize-trend
+pred_bc<- predict(past_data$basket_count)
+new_basket_count <- pred_bc$fitted[1]
+newxreg <- new_basket_count
+xreg <- past_data$basket_count
+model3 <- arima(detrend, order=c(6,0,3), xreg= xreg)
+predicted <- predict(model3, newxreg= newxreg, h=1)$pred
+last_trend <-tail(trend[!is.na(trend)],1)
+seasonality <- head(tail(seasonal,6),1)
+#predicted_actual_log <- predicted+last_trend+seasonality
+predicted_actual <- as.numeric(predicted) + as.numeric(last_trend) + as.numeric(seasonality)
+
+forecast_data[,selected_arima:=predicted_actual]
+
+results[[i]]=forecast_data
+
+}
+
+forecast_data
+
+overall_results=rbindlist(results)
+
+
+melted_result=melt(overall_results,c("event_date","sold_count"),c("lm_prediction","selected_arima"))
+
+setDT(melted_result)
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+
+ggplot(performance, aes(x=day_of_week, y=WMAPE,fill=variable)) + 
+  geom_boxplot() 
+
+```
+
+
+For conclusion, here is a plot of actual test set and predicted values of chosen model. As it can be seen, the predictions are pretty accurate.
+
+```{r Selected Model6, include=TRUE, echo=FALSE}
+days <- as.Date(as.Date("2021-05-29"):as.Date("2021-06-11"))
+
+myvalues <- xts(x = data.frame(overall_results$lm_prediction, test$sold_count), order.by = days, frequency = 7)
+colnames(myvalues) <- c("Prediction", "Real Values")
+plot(myvalues, main = "Predictions and Real Values", legend.loc = "bottomleft")
+
+```
+
+```{r, include=FALSE}
+# install the required packages first
+require(jsonlite)
+require(httr)
+require(data.table)
+library(lubridate)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(tidyr)
+library(tidyverse)
+library(scales)
+library(ggcorrplot)
+library(forecast)
+library(urca)
+library(zoo)
+library(reshape)
+library(GGally)
+library(PerformanceAnalytics)
+library(gridExtra)
+library(corrplot)
+
+
+get_token <- function(username, password, url_site){
+  
+  post_body = list(username=username,password=password)
+  post_url_string = paste0(url_site,'/token/')
+  result = POST(post_url_string, body = post_body)
+  
+  # error handling (wrong credentials)
+  if(result$status_code==400){
+    print('Check your credentials')
+    return(0)
+  }
+  else if (result$status_code==201){
+    output = content(result)
+    token = output$key
+  }
+  
+  return(token)
+}
+
+get_data <- function(start_date='2020-03-20', token, url_site){
+  
+  post_body = list(start_date=start_date,username=username,password=password)
+  post_url_string = paste0(url_site,'/dataset/')
+  
+  header = add_headers(c(Authorization=paste('Token',token,sep=' ')))
+  result = GET(post_url_string, header, body = post_body)
+  output = content(result)
+  data = data.table::rbindlist(output)
+  data[,event_date:=as.Date(event_date)]
+  data = data[order(product_content_id,event_date)]
+  return(data)
+}
+
+
+send_submission <- function(predictions, token, url_site, submit_now=F){
+  
+  format_check=check_format(predictions)
+  if(!format_check){
+    return(FALSE)
+  }
+  
+  post_string="list("
+  for(i in 1:nrow(predictions)){
+    post_string=sprintf("%s'%s'=%s",post_string,predictions$product_content_id[i],predictions$forecast[i])
+    if(i<nrow(predictions)){
+      post_string=sprintf("%s,",post_string)
+    } else {
+      post_string=sprintf("%s)",post_string)
+    }
+  }
+  
+  submission = eval(parse(text=post_string))
+  json_body = jsonlite::toJSON(submission, auto_unbox = TRUE)
+  submission=list(submission=json_body)
+  
+  print(submission)
+  # {"31515569":2.4,"32737302":2.4,"32939029":2.4,"4066298":2.4,"48740784":2.4,"6676673":2.4, "7061886":2.4, "73318567":2.4, "85004":2.4} 
+  
+  if(!submit_now){
+    print("You did not submit.")
+    return(FALSE)      
+  }
+  
+  
+  header = add_headers(c(Authorization=paste('Token',token,sep=' ')))
+  post_url_string = paste0(url_site,'/submission/')
+  result = POST(post_url_string, header, body=submission)
+  
+  if (result$status_code==201){
+    print("Successfully submitted. Below you can see the details of your submission")
+  } else {
+    print("Could not submit. Please check the error message below, contact the assistant if needed.")
+  }
+  
+  print(content(result))
+  
+}
+
+check_format <- function(predictions){
+  
+  if(is.data.frame(predictions) | is.data.frame(predictions)){
+    if(all(c('product_content_id','forecast') %in% names(predictions))){
+      if(is.numeric(predictions$forecast)){
+        print("Format OK")
+        return(TRUE)
+      } else {
+        print("forecast information is not numeric")
+        return(FALSE)                
+      }
+    } else {
+      print("Wrong column names. Please provide 'product_content_id' and 'forecast' columns")
+      return(FALSE)
+    }
+    
+  } else {
+    print("Wrong format. Please provide data.frame or data.table object")
+    return(FALSE)
+  }
+  
+}
+
+# this part is main code
+subm_url = 'http://46.101.163.177'
+
+u_name = "Group3"
+p_word = "LaQjwxkIGSGhBrRj"
+submit_now = TRUE
+
+username = u_name
+password = p_word
+
+token = get_token(username=u_name, password=p_word, url=subm_url)
+data = get_data(token=token,url=subm_url)
+
+#predictions=unique(data[,list(product_content_id)])
+#predictions[,forecast:= c(224,110,122,494,2,474,22,62,56)]
+
+#send_submission(predictions, token, url=subm_url, submit_now=T)
+
+```
+
+
+
+```{r}
+
+# join  data 
+rawdata <- rawdata <- read.csv("C:/Users/seyma/OneDrive/Belgeler/GitHub/spring21-seymacakir/files/project/ProjectRawData.csv", header = TRUE,sep = ",")
+rawdata <- as.data.table(rawdata)
+colnames <- c( "price","event_date","product_content_id","sold_count" , "visit_count" , "favored_count" , "basket_count","category_sold",     "category_brand_sold", "category_visits"  ,   "ty_visits"  ,  "category_basket",    "category_favored" )
+rawdata <- rawdata[,..colnames]
+rawdata <- rawdata[!is.na(sold_count)]
+rawdata$event_date <- as.Date(rawdata$event_date, format = "%Y-%m-%d")
+#rawdata$product_content_id <- as.factor(rawdata$product_content_id)
+#data$product_content_id <- as.factor(data$product_content_id)
+
+
+
+rawdata <- rbind(rawdata,data) %>% distinct(event_date, product_content_id, .keep_all = TRUE ) %>% arrange(event_date) %>% as.data.table()
+ 
+
+forecastdata <- tail(rawdata,9) 
+forecastdata[, event_date := as.Date(tail(rawdata,9)$event_date + 1)]
+
+rawdata <- rbind(rawdata,forecastdata) %>% distinct(event_date, product_content_id, .keep_all = TRUE ) %>% arrange(event_date) %>% as.data.table()
+
+ # add  month and weekday  component data 
+
+rawdata[,w_day:= wday(event_date)]
+rawdata[,mon:= month(event_date)]
+
+forecastdata[,w_day:= wday(event_date)]
+forecastdata[,mon:= month(event_date)]
+
+
+# campaign 
+
+rawdata[, is_campaign := 0]
+rawdata[rawdata$event_date >= as.Date("2021-05-07") & rawdata$event_date <= as.Date("2021-05-09"), is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-06-18") & rawdata$event_date <= as.Date("2020-06-20") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-06-18") & rawdata$event_date <= as.Date("2021-06-20") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-09-08") & rawdata$event_date <= as.Date("2020-09-12") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-09-10") & rawdata$event_date <= as.Date("2021-09-12") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-11-09") & rawdata$event_date <= as.Date("2020-11-11") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-11-25") & rawdata$event_date <= as.Date("2020-11-29") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-03-09") & rawdata$event_date <= as.Date("2021-03-12") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-04-27") & rawdata$event_date <= as.Date("2021-04-29") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2021-06-09") & rawdata$event_date <= as.Date("2021-06-10") , is_campaign := 1]
+rawdata[rawdata$event_date >= as.Date("2020-12-21") & rawdata$event_date <= as.Date("2020-12-24") , is_campaign := 1]
+
+
+
+
+
+# create data table for each product
+
+product_id <- unique(rawdata$product_content_id)
+products <- list()
+for ( i in 1:length(product_id)){
+products[[i]] <- as.data.table(rawdata[product_content_id == product_content_id[i]])
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r, functions}
+
+
+# product 7 
+
+forecast_lm7=function(data,forecast_data){
+    fitted_lm=lm(sold_count ~ price  + visit_count + basket_count + category_basket  + factor(mon) +  factor(is_campaign) + trend + lag1 + lag3 , data)
+    forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+
+forecast_lm7_sqrt=function(data,forecast_data){
+    fitted_lm=lm(sqrt~   price  + visit_count  + basket_count + ty_visits  + factor(mon)  + lag1 + lag7   + factor(is_campaign) + category_basket, data)
+    forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+forecast_BoxCox7=function(data,forecast_data){
+    fitted_lm=lm(BoxCox~ price + visit_count  + basket_count + category_sold + ty_visits  + factor(mon) + lag1 + lag7  + factor(is_campaign)  + category_basket , data)
+   forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+
+
+
+forecast_lm7_arima <- function(data,forecast_data){
+fitted_lm=lm(sold_count ~ price  + visit_count + basket_count + category_basket  + factor(mon) +  factor(is_campaign) + trend + lag1 + lag3 , data)
+ur.kpss(residuals(fitted_lm))
+residuals= ts( residuals(fitted_lm), frequency = 7)
+fitted_arima <- auto.arima(residuals)
+
+forecasted <- as.numeric(predict(fitted_lm,forecast_data)) + predict(fitted_arima, n.ahead = 1)$pred[1]
+return(forecasted)
+}
+
+
+# product 8 
+
+
+forecast_lm8=function(data,forecast_data){
+    fitted_lm=lm( sold_count ~ price +   visit_count + basket_count + category_favored  +  factor( w_day )  + factor(mon)  + lag1 + lag2 + price_lag_1 +price_lag_4 ,data)
+    forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+
+forecast_lm8_sqrt=function(data,forecast_data){
+    fitted_lm=lm(sqrt ~ price + visit_count  + basket_count +  category_favored + factor(w_day) + factor(mon) + lag1,data)
+    forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+forecast_BoxCox8=function(data,forecast_data){
+    fitted_lm=lm(BoxCox~ price + visit_count  +  basket_count  + category_favored + factor( w_day ) + factor(mon) + lag1, data)
+    forecasted=  forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+
+forecast_lm8_arima <- function(data,forecast_data){
+fitted_lm=lm( sold_count ~ price +   visit_count + basket_count + category_favored  +  factor( w_day )  + factor(mon)  + lag1 + lag2 + price_lag_1 +price_lag_4 ,data)
+#ur.kpss(residuals(fitted_lm))
+residuals= ts( residuals(fitted_lm), frequency = 7)
+fitted_arima <- auto.arima(residuals)
+
+forecasted <- predict(fitted_lm,forecast_data) + predict(fitted_arima, n.ahead = 1)$pred[1]
+return(forecasted)
+}
+
+
+# product 9 
+
+forecast_lm9=function(data,forecast_data){
+    fitted_lm=lm( sold_count ~ price  + basket_count  + category_sold  + category_favored  + factor(w_day)  + factor(mon) + trend  +   lag1 +  lag3  + factor(is_campaign),data)
+    forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+
+forecast_lm9_sqrt=function(data,forecast_data){
+    fitted_lm=lm(sqrt ~  price  +  basket_count  + category_sold  + category_favored + factor(w_day)  + factor(mon)  +   lag1 +  lag3 + factor(is_campaign),data)
+    forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+forecast_BoxCox9=function(data,forecast_data){
+    fitted_lm=lm(BoxCox~ price    +  basket_count  + category_sold  + category_favored   + ty_visits + factor(w_day)  + factor(mon)  + factor(is_campaign)+   lag1 +  lag3, data)
+    forecasted=  forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+
+forecast_lm9_arima <- function(data,forecast_data){
+ fitted_lm=lm( sold_count ~ price  + basket_count  + category_sold  + category_favored  + factor(w_day)  + factor(mon) + trend  +   lag1 +  lag3  + factor(is_campaign),data)
+#ur.kpss(residuals(fitted_lm))
+residuals= ts( residuals(fitted_lm), frequency = 7)
+fitted_arima <- auto.arima(residuals)
+
+forecasted <- predict(fitted_lm,forecast_data) + predict(fitted_arima, n.ahead = 1)$pred[1]
+return(forecasted)
+}
+
+
+
+# common functions 
+
+
+accu=function(actual,forecast,model){
+  model = model
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.frame(model,n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
+}
+
+
+
+
+graph1 <- function(i){
+    
+g1 <-ggplot(products[[i]], aes( x = event_date, y = sold_count)) + geom_line() + ggtitle(paste("product",i)) +theme_minimal()  
+g2 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(w_day))) + geom_boxplot() + 
+  ggtitle(paste("product",i))+ theme_minimal() 
+g3 <-ggplot(products[[i]], aes( y = sold_count, fill= factor(mon))) + geom_boxplot()+
+      ggtitle(paste("product",i))+ theme_minimal() 
+g4 <- ggplot(products[[i]], aes( x = sold_count)) + geom_histogram() + ggtitle(paste("product",i)) + theme_minimal()+
+        facet_wrap(~factor(w_day))
+g5 <-ggplot(products[[i]], aes( x = sold_count )) + geom_histogram() + theme_minimal()+ ggtitle(paste("product",i))+
+      facet_wrap(~factor(mon))
+
+print(g1)
+
+grid.arrange(
+  g2,g4,g3,g5,
+  ncol = 2
+
+)
+
+ACF <- acf( products[[i]]$sold_count, plot = FALSE)
+plot(ACF, main = paste("ACF OF Product",i))
+PACF <- pacf( products[[i]]$sold_count, plot = FALSE)
+plot(PACF, main = paste("PACF OF Product",i))
+}
+
+
+corr_graph <- function(data){
+  df1 <- data[, c(4,1,5,6,7,11)]
+  df2 <- data[, c(4,8:10,12,13)]
+chart.Correlation(df1, pch=19)
+chart.Correlation(df2, pch=19)
+
+}
+
+
+add_arima=function(data,h,f){
+ ts <- ts(data$sold_count,frequency =f )
+ add <- decompose(ts, type = "add") 
+ fitted <- auto.arima(add$random, seasonal= FALSE)
+ seasonal <- add$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
+ trend <- tail(add$trend[!is.na(add$trend)],1)
+ forecastted <- as.numeric(forecast(fitted,h)$mean) + seasonal + trend
+ return(forecastted)
+}
+
+xreg_add_arima=function(data,h,f, xreg){
+ ts <- ts(data$sold_count,frequency =f )
+ add <- decompose(ts, type = "add") 
+ train_xreg<- xreg[1:length(data$event_date)]
+ for_xreg <- xreg[(length(data$event_date))]
+ fitted <- auto.arima(add$random, seasonal= FALSE, xreg = train_xreg)
+ seasonal <- add$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
+ trend <- tail(add$trend[!is.na(add$trend)],1)
+ forecastted <- as.numeric(forecast(fitted,h,xreg = for_xreg)$mean) + seasonal + trend
+ return(forecastted)
+}
+
+
+
+mul_arima=function(data,h,f){
+ 
+ ts <- ts(data$sold_count,frequency =f )
+ mul <- decompose(ts, type = "mul") 
+ fitted <- auto.arima(mul$random, seasonal= FALSE)
+ seasonal <- mul$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
+ trend <- tail(mul$trend[!is.na(mul$trend)],1)
+ forecasted <- as.numeric(forecast(fitted,h)$mean)*seasonal*trend
+ return(forecasted)
+}
+
+xreg_mul_arima=function(data,h,f, xreg){
+ ts <- ts(data$sold_count,frequency =f )
+ mul <- decompose(ts, type = "mul") 
+ train_xreg<- xreg[1:length(data$event_date)]
+ for_xreg <- xreg[(length(data$event_date)) ]
+ fitted <- auto.arima(mul$random, seasonal= FALSE, xreg = train_xreg)
+ seasonal <- mul$seasonal[(length(data$sold_count)-f): (length(data$sold_count)-f+h-1)]
+ trend <- tail(mul$trend[!is.na(mul$trend)],1)
+ forecastted <- as.numeric(forecast(fitted,h,xreg = for_xreg)$mean)*seasonal*trend
+ return(forecastted)
+}
+
+
+```
+
+
+# Product 7 -Oral-B Rechargeable ToothBrush
+
+First of all, the general behaviour of data is examined during the day by time plot. 
+
+Secocondly, the distribution in days and months is plotted to see if it is changed depend on month and day. 
+
+Finally , by ACF and PACF graph, the relationship between previous observations is observed. 
+
+```{r}
+product7 <- products[[7]]
+graph1(7)
+
+```
+
+It can be say that, there is a trend in data, and if trend factor is excluded, the autocorrelation between lag1, lag3 and lag is significant. 
+
+The data is depend on month and day factor by observing boxplot of data. Since the day factor is significant, day factor will be used in model construction instead of lag7 and the frequency of data determined as 7. 
+
+
+## Examination of Attributes
+
+The some of the attributes of data is not reliable, therefore, it is examined by summary of data.
+
+```{r}
+
+summary(product7)
+
+df <- product7[,c(1,4:14)]
+do.call("cbind",lapply(df,function(x) boxplot.stats(x)$stats))
+
+
+
+product7[is.na(price)]$price <- mean(product7[!is.na(price)]$price)
+product7[,trend := 1:.N]
+product7[ty_visits==1, ty_visits:= mean(ty_visits)]
+product7[category_favored==0, category_favored:= mean(category_favored)]
+product7[category_visits==0, category_visits:= mean(category_visits)]
+
+
+corr_graph(product7)
+```
+
+
+
+
+The relationship of attributes and response variable is observed by correlation grapgh. 
+
+Basket_count, category_visits and category_favored has high correlation and it seems reliable data from summary of data.However, there is 0 values which is not expected in real life therefore, the zero values are changed as mean. 
+
+ty_visits also has 1 value before particular date and it is changed as mean of ty_visits. 
+
+Some price values are NA, and they are changed as mean of price since price is not has significant changes during the time. 
+
+In the end, "price","visit_count",  "basket_count","category_favored" , "ty_visits","is_campaign" values determined as regressors. 
+
+
+```{r}
+
+xreg7 <- product7[ , c( "price","visit_count",  "basket_count","category_favored" , "ty_visits","is_campaign")]
+xreg7 <- as.matrix(xreg7)
+
+```
+
+
+
+
+```{r}
+
+product7 [, lag1:= shift(sold_count,1)]
+product7[is.na(lag1), lag1 := 0]
+product7 [, lag2:= shift(sold_count,2)]
+product7[is.na(lag2), lag2 := mean(sold_count[1]) ]
+product7 [, lag3:= shift(sold_count,3)]
+product7[is.na(lag3), lag3 := mean(sold_count[1:2]) ]
+product7 [, lag7:= shift(sold_count,7)]
+product7[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
+
+
+
+product7[, sqrt:= sqrt(sold_count)]
+lambda <- BoxCox.lambda(product7$sold_count)
+product7[, BoxCox := BoxCox(sold_count,lambda = lambda)]
+
+test_dates <- tail(product7,15)$event_date
+nextday <- tail(product7,1)
+train7 <-  product7[!(event_date %in% test_dates)]
+test_dates <- test_dates[1:14]
+test7 <- product7[event_date %in% test_dates][1:14]
+
+forecast_ahead <- 1
+```
+
+the data will be predicted based on previous observations attributes since the real attributes not available for prediction time. 
+
+
+
+## Model construction 
+
+the data has no constant variance therefore, besides the simple linear model, the sqrt transformation and boxcox tranformation is used for simple regression model
+
+
+**simple linear regression with no transformation**
+
+By many iterations, it is seen that day factor is not significant as is expected. 
+
+```{r}
+autoplot(ts(product7$sold_count))
+lm7 <- lm( sold_count ~ price  + visit_count + basket_count + category_basket  + factor(mon) +  factor(is_campaign) + trend + lag1 + lag3 , train7)
+summary(lm7)
+checkresiduals(lm7)
+
+plot(train7$sold_count, lm7$fitted)
+ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count,color = "Actual")) + geom_line( aes( x = train7$event_date,y = lm7$fitted,color = "Fitted")) + labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model"
+) + theme_minimal()
+```
+
+the residuals analysis is good for lm model with no significant autocorrelation around mean zero, however, the variablity of error in higher values is higher. 
+
+**simple linear regression with sqrt() transformation**
+
+By many iterations, the 
+
+```{r}
+autoplot(ts(product7$sqrt))
+sqrt_lm7 <- lm(sqrt~  price  + visit_count  + basket_count + ty_visits  + factor(mon)  + lag1  + factor(is_campaign) + category_visits + category_basket , train7 )
+summary(sqrt_lm7)
+checkresiduals(sqrt_lm7)
+
+ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train7$event_date,y = (sqrt_lm7$fitted)^2, color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with sqrt() transformation"
+) + theme_minimal()
+```
+the residuals analysis is  model with  significant autocorrelation in lag1 around mean zero, however, the variablity of error in higher values is higher. It is poor by comparing lm model with no transformation. 
+
+
+
+
+**simple linear regression with BoxCox transformation**
+
+
+By many iterations, it is seen that day factornot significant but lag7 is significant and lag3 factor is not significant for boxcox linear model therefore, they excluded and the category_basket is significant for boxcox transformation. 
+
+```{r}
+
+BoxCox_lm7 <- lm(BoxCox~ price + visit_count  + basket_count + category_favored + ty_visits  + factor(mon) + lag1 + lag7 + factor(is_campaign)  + category_basket , train7)
+summary(BoxCox_lm7)
+autoplot(ts(product7$BoxCox))
+checkresiduals(BoxCox_lm7)
+
+
+ggplot() + geom_line(data = train7, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train7$event_date,y = InvBoxCox(BoxCox_lm7$fitted, lambda = lambda), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with BoxCox transformation"
+) + theme_minimal()
+
+
+```
+
+By residuals analysis, boxcox model has big deviation in time and adjusted R-squared value is lower than others. 
+
+
+
+**Arima Models** 
+
+When arima models is constructed, the auto.arima function is used, and in every day the auto.arima function is runs again. 
+the seasonality is TRUE, and frequency is determined as seven by observing ACF and PACF graph. 
+
+Additive Model, Multplive Model, and linear regression model is used for decomposition and get stationary data. 
+
+```{r}
+print("The Additive Model")
+decomposed <- decompose(ts(product7$sold_count,frequency= 7))
+ur.kpss(decomposed$random)
+
+print("The Multiplicative Model")
+ur.kpss(decompose(ts(product7$sold_count,frequency= 7), type="mul")$random)
+
+print("Linear Regression")
+residuals <- residuals(lm7)
+ur.kpss(residuals)
+
+decomposed <- decompose(ts(train7$sold_count,frequency= 7))
+``` 
+
+the multiplive model is not significant, therefore I will use the addtive decomposition for arima and arima regressors models.
+
+the linear regression model residuals are stationary therefore, the residuals use for arima model and they combined in the end. 
+
+the regressors mentioned above is used for arima model with regressors. 
+
+**Arima Model**
+
+```{r}
+acf(decomposed$random, lag = 14, na.action = na.pass)
+pacf(decomposed$random, lag = 14, na.action = na.pass)
+arima <- auto.arima(decomposed$random) 
+arima
+
+checkresiduals(arima)
+
+ pred <- arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train7[1:length(pred)]$event_date, y= train7[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train7[1:length(pred)]$event_date, y= pred, color= "Predicted")) + labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for arima(0,0,1)(0,0,2)[7]"
+ ) + theme_minimal()
+```
+
+By observing, pacf is significant at lag1 and acf drops after lag1 therfore, it is reasonable auto.arima gives the MA(1). 
+And at lag2 as seasonal the pacf and acf is significant, the seasonal order(0,0,2) is reasonable, too. 
+
+```{r}
+
+reg_arima <- auto.arima(decomposed$random, xreg = xreg7[1:(length(decomposed$random))]) 
+reg_arima
+
+checkresiduals(reg_arima)
+AIC(reg_arima)
+
+ pred <- reg_arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train7[1:length(pred)]$event_date, y= train7[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train7[1:length(pred)]$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for arima model with regressors"
+ ) + theme_minimal()
+
+
+```
+
+By residual analysis, the arima with regressors has no autocorrelated residuals and lower AIC, therefore arima with regressors is better model than arima. 
+
+**Arima combined with linear Regression**
+
+```{r}
+acf(residuals)
+pacf(residuals)
+lm_arima <- auto.arima(residuals)
+lm_arima
+checkresiduals(lm_arima)
+
+ pred <- lm_arima$fitted + lm7$fitted.values
+ 
+ 
+ ggplot() + geom_line(aes( x= train7$event_date, y= train7$sold_count, color= "Actual")) + geom_line(aes( x= train7$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for linear model and arima combination"
+ )  + theme_minimal()
+
+```
+
+the auto arima model on residuals give zero mean and no autocorrelated residuals and lower AIC valu, it is better than arima and arima regressor model by residual analysis. 
+
+
+
+
+## Predictions
+
+The predictions based on the last available attributes, and the predictions plotted with actual sales values. 
+
+```{r}
+
+
+
+prediction7 <- data.table("event_date" = test_dates,"actual"= product7[event_date %in% test_dates]$sold_count, "sqrt_forecasted_sold"= c(1:length(test_dates)), "BoxCox_forecasted_sold"= c(1:length(test_dates)), "lm_forecasted_sold"= c(1:length(test_dates)), "forecasted_lm7_arima"= c(1:length(test_dates)) )
+
+
+prediction7[, add_arima_forecasted := 0]
+
+prediction7[, reg_add_arima_forecasted := 0]
+
+
+
+
+
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    past_data=product7[event_date<=current_date]
+    forecast_data=product7[event_date==test_dates[i]]
+    
+    forecasted=forecast_lm7_sqrt(past_data,forecast_data)
+    prediction7$sqrt_forecasted_sold[i]<- forecasted$forecast^2
+    
+    forecasted=forecast_BoxCox7(past_data,forecast_data)
+    prediction7$BoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
+    
+    forecasted=forecast_lm7(past_data,forecast_data)
+    prediction7$lm_forecasted_sold[i]<- forecasted$forecast
+    
+    prediction7$forecasted_lm7_arima[i] <- forecast_lm7_arima(past_data,forecast_data)
+    
+    
+    prediction7$add_arima_forecasted[i] <- add_arima(past_data,1,7)
+    prediction7$reg_add_arima_forecasted[i] <- xreg_add_arima(past_data,1,7,xreg7)
+   
+}
+
+prediction7
+
+  
+
+```
+```{r}
+
+ggplot() + geom_line(data = product7[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
+  geom_line(data = prediction7,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
+   geom_line(data = prediction7,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
+   geom_line(data = prediction7,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) +
+   geom_line(data = prediction7,aes( x = event_date,y =forecasted_lm7_arima, color = " lm_arima")) +
+   geom_line(data = prediction7,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
+
+   geom_line(data = prediction7,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
+  
+  labs(
+    x= "time",
+    y= "sales",
+    main= "Predictions vs. Actual Values"
+  ) + 
+  theme_minimal()
+```
+
+
+## EROR rate of Models
+
+```{r}
+  
+error7 =  data.table()
+
+for(i in 3:(length(prediction7))){
+  
+
+  error7 <- rbind(error7, accu(test7$sold_count,prediction7[,..i],colnames(prediction7[,..i])))
+}
+
+
+error7
+
+
+```
+
+Since the arima model combined model has the lowest WMAPE value it is selected for prediction. 
+However, 
+In every day, the error rates are calculated for last 14 days and the model predictions and the model prediction has the lowest  WMAPE value of is selected.
+
+
+
+## Predictions of Next Day 
+
+
+
+```{r}
+
+nextday_pred <-c(
+
+"add_arima" = add_arima(product7,1,7),
+"xreg_add_arima" = xreg_add_arima(product7,1,7, xreg7),
+"forecast_lm" =forecast_lm7(product7,nextday)$forecast,
+"forecast_lm_arima" = forecast_lm7_arima(product7,nextday)[1],
+"BoxCox_lm" = InvBoxCox(forecast_BoxCox7(product7,nextday)$forecast, lambda = lambda),
+"Sqrt_lm" = round((forecast_lm7_sqrt(product7,nextday)$forecast)^2)
+
+
+)
+
+
+nextday_pred
+
+```
+
+
+# Product 8  - Altinyildiz Classics Jacket
+
+```{r}
+product8 <- products[[8]]
+graph1(8)
+```
+
+It can be seen that the sales is zero most of time, however, there is huge increase in October. 
+
+The ACF and PACF of data shows that there is significant autocorrelation in lag1 and lag7. 
+
+
+## the Examination of Attirubutes
+
+the correlation of price, visit_count, and basket_count is high and it is expected if the sold_count is zero this variables can be zero. 
+
+However, it is not expected that category favored and trendyol visits is zero or one therefore these variables changed as mean. 
+
+```{r}
+
+
+summary(product8)
+
+df <- product8[,c(1,4:14)]
+do.call("cbind",lapply(df,function(x) boxplot.stats(x)$stats))
+
+corr_graph(product8)
+
+product8[is.na(price)]$price <- mean(product7[!is.na(price)]$price)
+product8[,trend :=1:.N]
+product8[ty_visits ==1 , ty_visits:= round(mean(product8$ty_visits))]
+product8[category_basket==0,  category_basket:= round(mean(product8$category_basket))]
+product8[category_basket > 469103  ,  category_basket:= round(mean(product8$category_basket))]
+
+
+```
+
+By considering correlation and variable relaibility the "price","visit_count",  "basket_count","category_favored"  are selected as regressors. 
+
+```{r}
+
+xreg8 <- product8[ , c( "price","visit_count",  "basket_count","category_favored" )]
+xreg8 <- as.matrix(xreg8)
+```
+
+
+
+The acf and pacf garph is shows high correlation in lag1,lag2,lag5 and lag7 therefore they are added as attirbutes. 
+
+```{r}
+
+product8 [, lag1:= shift(sold_count,1)]
+product8[is.na(lag1), lag1 := 0]
+product8 [, lag2:= shift(sold_count,2)]
+product8[is.na(lag2), lag2 := mean(sold_count[1]) ]
+product8 [, lag5:= shift(sold_count,5)]
+product8[is.na(lag5), lag5 := mean(sold_count[1:4]) ]
+product8 [, lag7:= shift(sold_count,7)]
+product8[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
+```
+
+
+Since Jacket is expensive product, it is expected that consumers consider the previous price of jacket. Therefore, previous prices of Jacket is examined. 
+
+```{r}
+product8[ , price_lag_4 := shift(price,4)]
+product8[ , price_lag_5 := shift(price,5)]
+product8[ , price_lag_6 := shift(price,6)]
+product8[ , price_lag_1 := shift(price,1)]
+product8[is.na(price_lag_4), price_lag_4:= mean(price) ]
+product8[is.na(price_lag_5), price_lag_5:= mean(price) ]
+product8[is.na(price_lag_6), price_lag_6:= mean(price) ]
+product8[is.na(price_lag_1), price_lag_1:= mean(price) ]
+
+corr <- product8[, c("sold_count","price", "price_lag_1","price_lag_4","price_lag_5", "price_lag_6")]
+corrplot(cor(corr), method="color",  
+         type="upper", order="hclust", 
+         addCoef.col = "black",
+         tl.col="black", tl.srt=45, 
+         
+         diag=FALSE 
+         )
+```
+
+
+the data will be predicted based on previous observations attributes since the real attributes not available for prediction time. 
+
+
+
+### model construction 
+
+the data has no constant variance therefore, besides the simple linear model, the sqrt transformation and boxcox tranformation is used for simple regression model
+
+```{r}
+
+product8[, sqrt:= sqrt(sold_count)]
+lambda <- BoxCox.lambda(product8$sold_count)
+product8[, BoxCox := BoxCox(sold_count,lambda = lambda)]
+
+test_dates <- tail(product8,15)$event_date
+nextday <- tail(product8,1)
+train8 <-  product8[!(event_date %in% test_dates)]
+test_dates <- test_dates[1:14]
+test8 <- product8[event_date %in% test_dates][1:14]
+
+
+forecast_ahead <- 1
+```
+
+**Simple Regression**
+
+By many iterations, it is seen that most significant variables are price, visit_count, basket_count, category_favored,factor( w_day ), factor(mon),lag1,lag2,price_lag_4. 
+
+
+
+```{r}
+autoplot(ts(product8$sold_count))
+lm8 <- lm( sold_count ~ price +   visit_count + basket_count + category_favored  +  factor( w_day )  + factor(mon)  + lag1 + lag2  + price_lag_4, train8)
+summary(lm8)
+checkresiduals(lm8)
+
+
+ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train8$event_date,y = (lm8$fitted), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with no transformation"
+) + theme_minimal()
+```
+
+**Simple Linear Regression with sqrt() transformation**
+
+By many iteration, it is seen that the plag_4 and lag_2 is not significant for sqrt transformation model, lag5 is significant.  
+
+```{r}
+
+autoplot(ts(product8$sqrt))
+sqrt_lm8 <- lm(sqrt ~ price + visit_count  + basket_count +  category_favored + factor(w_day) + factor(mon) + lag1 +lag5, data = train8)
+summary(sqrt_lm8)
+checkresiduals(sqrt_lm8)
+ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train8$event_date,y = (sqrt_lm8$fitted)^2, color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with sqrt transformation"
+) + theme_minimal()
+
+
+```
+
+ In residual analysis there is no significant difference, and adjusted R-square value of squared transformation is higher.
+
+
+**Simple Linear Regression Model with BoxCox Transformation**
+
+By many iteration, price, visit_count, basket_count, category_favored, factor( w_day ), factor(mon), lag1 are most significant variables for Simple Linear Regression Model with BoxCox Transformation. 
+
+
+
+```{r}
+autoplot(ts(product8$BoxCox))
+BoxCox_lm8 <- lm(BoxCox~ price + visit_count  +  basket_count  + category_favored + factor( w_day ) + factor(mon) + lag1,train8)
+summary(BoxCox_lm8)
+checkresiduals(BoxCox_lm8)
+
+ggplot() + geom_line(data = train8, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train8$event_date,y = InvBoxCox(BoxCox_lm8$fitted.values,lambda), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with sqrt transformation"
+) + theme_minimal()
+
+
+
+```
+
+In residual analysis and adjusted R-squared comparison BoxCox is better than others, however, it is very sensitive to back transformation, therefore, maybe predictions can be poor. 
+
+
+**Arima Models** 
+
+When arima models is constructed, the auto.arima function is used, and in every day the auto.arima function is runs again. 
+the seasonality is TRUE, and frequency is determined as seven by observing ACF and PACF graph. 
+
+Additive Model, Multplive Model, and linear regression model is used for decomposition and get stationary data. 
+
+```{r}
+print("The Additive Model")
+decomposed <- decompose(ts(product8$sold_count,frequency= 7))
+ur.kpss(decomposed$random)
+
+print("The Multiplicative Model")
+ur.kpss(decompose(ts(product8$sold_count,frequency= 7), type="mul")$random)
+
+print("Linear Regression")
+residuals <- residuals(lm8)
+ur.kpss(residuals)
+
+decomposed <- decompose(ts(train8$sold_count,frequency= 7))
+``` 
+
+the multiplive model is significant at alpha level = .10, therefore I will use the addtive decomposition for arima and arima regressors models.
+
+the linear regression model residuals are stationary therefore, the residuals use for arima model and they combined in the end. 
+
+the regressors mentioned above is used for arima model with regressors. 
+
+**Arima**
+
+```{r}
+acf(decomposed$random, lag = 14, na.action = na.pass)
+pacf(decomposed$random, lag = 14, na.action = na.pass)
+arima <- auto.arima(decomposed$random) 
+arima
+
+checkresiduals(arima)
+
+ pred <- arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train8[1:length(pred)]$event_date, y= train8[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train8[1:length(pred)]$event_date, y= pred, color= "Predicted")) + labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted by Arima combined with Linear Regression"
+ ) + theme_minimal()
+```
+
+
+
+
+**Arima with Regressor**
+
+```{r}
+reg_arima <- auto.arima(decomposed$random, xreg = xreg8[1:(length(decomposed$random))]) 
+reg_arima
+
+checkresiduals(reg_arima)
+
+
+ pred <- reg_arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train8[1:length(pred)]$event_date, y= train8[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train8[1:length(pred)]$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for arima model with regressors"
+ ) + theme_minimal()
+```
+
+**Arima combined with linear Regression**
+
+```{r}
+
+acf(residuals)
+pacf(residuals)
+lm_arima <- auto.arima(residuals)
+lm_arima
+checkresiduals(lm_arima)
+
+ pred <- lm_arima$fitted + lm8$fitted.values
+ 
+ 
+ ggplot() + geom_line(aes( x= train8$event_date, y= train8$sold_count, color= "Actual")) + geom_line(aes( x= train8$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for linear model and arima combination"
+ )  + theme_minimal()
+
+```
+
+
+
+
+## Predictions
+
+The all models are used to predict include mul_arima and reg_mul_arima since they significant at alpha = 0.10. 
+
+```{r}
+
+prediction8 <- data.table("event_date" = test_dates,"actual"= product8[event_date %in% test_dates]$sold_count, "sqrt_forecasted_sold"= c(1:length(test_dates)), "BoxCox_forecasted_sold"= c(1:length(test_dates)), "lm_forecasted_sold"= c(1:length(test_dates)), "forecasted_lm8_arima"= c(1:length(test_dates)) )
+
+
+prediction8[, add_arima_forecasted := 0]
+prediction8[ , mul_arima_forecasted := 0]
+prediction8[, reg_add_arima_forecasted := 0]
+prediction8[ ,reg_mul_arima_forecasted := 0]
+
+
+
+
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    past_data=product8[event_date<=current_date]
+    forecast_data=product8[event_date==test_dates[i]]
+    
+    forecasted=forecast_lm8_sqrt(past_data,forecast_data)
+    prediction8$sqrt_forecasted_sold[i]<- round(forecasted$forecast^2)
+    
+    forecasted=forecast_BoxCox8(past_data,forecast_data)
+    prediction8$BoxCox_forecasted_sold[i]<- round(InvBoxCox(forecasted$forecast, lambda = lambda))
+    
+    forecasted=forecast_lm8(past_data,forecast_data)
+    prediction8$lm_forecasted_sold[i]<- round(forecasted$forecast)
+    
+    prediction8$forecasted_lm8_arima[i] <-round(forecast_lm8_arima(past_data,forecast_data))
+    
+    
+    prediction8$add_arima_forecasted[i] <- round(add_arima(past_data,1,7))
+    prediction8$reg_add_arima_forecasted[i] <- round(xreg_add_arima(past_data,1,7,xreg8))
+    prediction8$mul_arima_forecasted[i] <- round(mul_arima(past_data,1,7))
+    prediction8$reg_mul_arima_forecasted[i] <- round(xreg_mul_arima(past_data,1,7,xreg8))
+}
+
+prediction8
+
+
+  
+
+```
+
+```{r}
+
+ggplot() + geom_line(data = product8[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
+  geom_line(data = prediction8,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
+   geom_line(data = prediction8,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
+   geom_line(data = prediction8,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) +
+   geom_line(data = prediction8,aes( x = event_date,y =forecasted_lm8_arima, color = " lm_arima")) +
+   geom_line(data = prediction8,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
+   geom_line(data = prediction8,aes( x = event_date,y =mul_arima_forecasted, color = "mul_arima_forecasted")) +
+   geom_line(data = prediction8,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
+   geom_line(data = prediction8,aes( x = event_date,y =reg_mul_arima_forecasted , color = "reg_mul_arima_forecasted"))+
+   labs(
+    x= "time",
+    y= "sales",
+    main= "Predictions vs. Actual Values"
+  ) + 
+  theme_minimal()
+```
+
+
+
+
+## EROR Rates
+
+```{r}
+  
+error8 =  data.table()
+
+for(i in 3:(length(prediction8))){
+  
+
+  error8 <- rbind(error8, accu(test8$sold_count,prediction8[,..i],colnames(prediction8[,..i])))
+}
+
+
+error8
+
+```
+
+The error rates are very high, however the range of response variable too narrow, therefore, it is expected. 
+Like if the sales = 1 and the prediction is equal= 2 the error rate will be %100. 
+
+The mul_arima_forecasted has the lowest error rate. 
+
+## Next Day Prediction
+
+In every day, the error rates are calculated for last 14 days and the model predictions and the model prediction has the lowest  WMAPE value of is selected.
+
+```{r}
+
+nextday_pred <-c(
+
+"add_arima" = add_arima(product8,1,7),
+"mul_arima" = mul_arima(product8,1,7),
+"xreg_mul_arima" = xreg_mul_arima(product8,1,7, xreg8),
+"xreg_add_arima" = xreg_add_arima(product8,1,7, xreg8),
+"forecast_lm" =forecast_lm8(product8,nextday)$forecast,
+"forecast_lm_arima" = forecast_lm8_arima(product8,nextday)[1],
+"BoxCox_lm" = InvBoxCox(forecast_BoxCox8(product8,nextday)$forecast, lambda = lambda),
+"Sqrt_lm" = round((forecast_lm8_sqrt(product8,nextday)$forecast)^2)
+
+
+)
+
+
+nextday_pred
+
+```
+
+
+# Product9  -TrendyolMilla Bikini Top
+
+
+By observing the graph below, the month effect is clearly observable. It is expected since bikini is wore in hot seasons in Turkey. 
+Moreover, by examined the acf and pacf graph, it can be said that there is trend in data and correlation with lag1 and lag7. 
+
+```{r}
+product9 <- products[[9]]
+
+graph1(9)
+```
+
+
+the "price","category_sold",  "basket_count","category_favored" attributes are more relaible and significantly corralet with data. Even if the visit_count and favored_count is very high corraleted with data, they also corraleted with basket_count therefore they do not used in regressors. 
+
+```{r}
+summary(product9)
+
+
+
+product9[is.na(price)]$price <- mean(product9[(!is.na(price)) & (price>= 0) ]$price)
+product9[price<=0]$price <- mean(product9[!is.na(price)]$price)
+
+corr_graph(product9)
+
+
+xreg9 <- product9[ , c( "price","category_sold",  "basket_count","category_favored" )]
+xreg9 <- as.matrix(xreg9)
+
+```
+
+
+The trend, lag1,lag2,lag3, and lag7 variables are added data. 
+
+```{r}
+product9[,trend := 1:.N]
+
+product9[ty_visits==1, ty_visits:= mean(ty_visits)]
+product9 [, lag1:= shift(sold_count,1)]
+product9[is.na(lag1), lag1 := 0]
+product9 [, lag2:= shift(sold_count,2)]
+product9[is.na(lag2), lag2 := mean(sold_count[1]) ]
+product9 [, lag3:= shift(sold_count,3)]
+product9[is.na(lag3), lag3 := mean(sold_count[1:2]) ]
+product9 [, lag7:= shift(sold_count,7)]
+product9[is.na(lag7), lag7 := mean(sold_count[1:6]) ]
+```
+
+
+## model construction 
+
+the data has no constant variance therefore, besides the simple linear model, the sqrt transformation and boxcox tranformation is used for simple regression model
+
+```{r}
+
+product9[, sqrt:= sqrt(sold_count)]
+lambda <- BoxCox.lambda(product9$sold_count)
+product9[, BoxCox := BoxCox(sold_count,lambda = lambda)]
+
+test_dates <- tail(product9,15)$event_date
+nextday <- tail(product9,1)
+train9 <-  product9[!(event_date %in% test_dates)]
+test_dates <- test_dates[1:14]
+test9 <- product9[event_date %in% test_dates][1:14]
+
+
+
+forecast_ahead <- 1
+
+```
+
+
+In product9, attributes are reliable therefore the all attributes are tried to add model and most significance ones selected for the model .
+
+
+
+**simple linear regression with no transformation** 
+ 
+
+```{r}
+
+autoplot(ts(product9$sold_count))
+lm9 <- lm( sold_count ~ price  +  visit_count    +  basket_count  + favored_count + category_sold + category_visits + category_basket + category_favored + category_brand_sold  + factor(w_day)  + factor(mon) + trend  +   lag1 +  lag3   ,train9 )
+summary(lm9)
+checkresiduals(lm9)
+
+```
+
+The Adjusted R-squared value is very high and residuals seems to no autocorraled arround the mean zero. The model is a can be good fit. 
+
+
+```{r}
+
+ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train9$event_date,y = (lm9$fitted), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with no transformation"
+) + theme_minimal()
+```
+
+
+**Simple Linear Regression Model with sqrt transformation**
+
+
+```{r}
+autoplot(ts(product9$sqrt))
+sqrt_lm9 <- lm(sqrt~ price  +  visit_count    +  basket_count  + favored_count + category_sold + category_visits + category_basket + category_favored + category_brand_sold + ty_visits + factor(w_day)  + factor(mon)  +   lag1 +  lag3     , train9 )
+summary(sqrt_lm9)
+checkresiduals(sqrt_lm9)
+```
+
+The sqrt tranformation is also good fit model by R-squared value and residual analysis, However, it has lower R-squared value than no transformation model. 
+
+```{r}
+
+ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train9$event_date,y = (sqrt_lm9$fitted)^2, color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with sqrt() transformation"
+) + theme_minimal()
+```
+
+**BoxCox Transformation**
+
+```{r}
+
+autoplot(ts(product9$BoxCox))
+BoxCox_lm9 <- lm(BoxCox~price  +  visit_count    +  basket_count  + favored_count  + category_visits + category_basket  + ty_visits + factor(w_day)  + factor(mon)  +   lag1 +  lag3            
+                , train9)
+summary(BoxCox_lm9)
+checkresiduals(BoxCox_lm9)
+
+```
+
+BoxCox transformation is also can be good fit model since the adjusted R-square value high. 
+
+
+```{r}
+ggplot() + geom_line(data = train9, aes(x = event_date, y = sold_count, color = "Actual")) + geom_line( aes( x = train9$event_date,y = InvBoxCox(BoxCox_lm9$fitted.values,lambda), color = "Fitted"))+ labs(
+  x= "sales",
+  y= "sales",
+  main = "Actual vs. Fitted Values for LM model with BoxCox transformation"
+) + theme_minimal()
+
+
+```
+
+
+In all lm models the residuals is significantly corraleted in lag1 it is not desirable. 
+
+
+**Arima Models**
+
+
+When arima models is constructed, the auto.arima function is used, and in every day the auto.arima function is runs again. 
+the seasonality is TRUE, and frequency is determined as seven by observing ACF and PACF graph. 
+
+Additive Model, Multplive Model, and linear regression model is used for decomposition and get stationary data. 
+
+```{r}
+print("The Additive Model")
+decomposed <- decompose(ts(product9$sold_count,frequency= 7))
+ur.kpss(decomposed$random)
+
+print("The Multiplicative Model")
+ur.kpss(decompose(ts(product9$sold_count,frequency= 7), type="mul")$random)
+
+print("Linear Regression")
+residuals <- residuals(lm9)
+ur.kpss(residuals)
+
+decomposed <- decompose(ts(train9$sold_count,frequency= 7))
+``` 
+
+I used the addtive model in examination, however, the mul model is also used in predictions and calculated error rate since it is significant at level = 0.05
+
+
+
+
+**Arima** 
+
+
+
+```{r}
+acf(decomposed$random, lag = 14, na.action = na.pass)
+pacf(decomposed$random, lag = 14, na.action = na.pass)
+arima <- auto.arima(decomposed$random) 
+arima
+
+checkresiduals(arima)
+
+ pred <- arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train9[1:length(pred)]$event_date, y= train9[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train9[1:length(pred)]$event_date, y= pred, color= "Predicted")) + labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted by Arima combined with Linear Regression"
+ ) + theme_minimal()
+```
+
+
+
+
+
+**Arima with Regressor** 
+
+
+
+```{r}
+reg_arima <- auto.arima(decomposed$random, xreg = xreg9[1:(length(decomposed$random))]) 
+reg_arima
+
+checkresiduals(reg_arima)
+
+
+ pred <- reg_arima$fitted + decomposed$seasonal + decomposed$trend
+ 
+ 
+ 
+ ggplot() + geom_line(aes( x= train9[1:length(pred)]$event_date, y= train9[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes( x= train9[1:length(pred)]$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for arima model with regressors"
+ ) + theme_minimal()
+```
+
+
+
+
+
+
+**Arima comined with Linear Regression**
+
+
+
+```{r}
+
+acf(residuals)
+pacf(residuals)
+lm_arima <- auto.arima(residuals)
+lm_arima
+checkresiduals(lm_arima)
+
+ pred <- lm_arima$fitted + lm9$fitted.values
+ 
+ 
+ ggplot() + geom_line(aes( x= train9[1:length(pred)]$event_date,  y= train9[1:length(pred)]$sold_count, color= "Actual")) + geom_line(aes(  x= train9[1:length(pred)]$event_date, y= pred, color= "Predicted"))+ labs(
+   x= "time", 
+   y= "sales", 
+   main = "Actual vs. Predicted Values for linear model and arima combination"
+ )  + theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+The all arima models have no significant corraleted residuals around zero. The arima model combined with linear regression is the lowest AIC value, therefore, it can be the best fit model. 
+
+
+
+
+
+
+
+## Predictions 
+
+```{r}
+
+
+prediction9 <- data.table("event_date" = test_dates,"actual"= product9[event_date %in% test_dates]$sold_count, "sqrt_forecasted_sold"= c(1:length(test_dates)), "BoxCox_forecasted_sold"= c(1:length(test_dates)), "lm_forecasted_sold"= c(1:length(test_dates)), "forecasted_lm9_arima"= c(1:length(test_dates)) )
+
+
+prediction9[, add_arima_forecasted := 0]
+prediction9[ , mul_arima_forecasted := 0]
+prediction9[, reg_add_arima_forecasted := 0]
+prediction9[ ,reg_mul_arima_forecasted := 0]
+
+
+
+
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    past_data=product9[event_date<=current_date]
+    forecast_data=product9[event_date==test_dates[i]]
+    
+    forecasted=forecast_lm9_sqrt(past_data,forecast_data)
+    prediction9$sqrt_forecasted_sold[i]<- forecasted$forecast^2
+    
+    forecasted=forecast_BoxCox9(past_data,forecast_data)
+    prediction9$BoxCox_forecasted_sold[i]<- InvBoxCox(forecasted$forecast, lambda = lambda)
+    
+    forecasted=forecast_lm9(past_data,forecast_data)
+    prediction9$lm_forecasted_sold[i]<- forecasted$forecast
+    
+    prediction9$forecasted_lm9_arima[i] <- forecast_lm9_arima(past_data,forecast_data)
+    
+    
+    prediction9$add_arima_forecasted[i] <- add_arima(past_data,1,7)
+    prediction9$reg_add_arima_forecasted[i] <- xreg_add_arima(past_data,1,7,xreg9)
+    prediction9$mul_arima_forecasted[i] <- mul_arima(past_data,1,7)
+    prediction9$reg_mul_arima_forecasted[i] <-xreg_mul_arima(past_data,1,7,xreg9)
+}
+
+
+
+prediction9
+
+
+```
+
+
+
+```{r}
+
+ggplot() + geom_line(data = product9[event_date %in% test_dates], aes(x= event_date, y = sold_count)) + 
+  geom_line(data = prediction9,aes( x = event_date,y =sqrt_forecasted_sold, color = "Sqrt"))+ 
+   geom_line(data = prediction9,aes( x = event_date,y =lm_forecasted_sold, color = "No Transformation")) + 
+   geom_line(data = prediction9,aes( x = event_date,y =BoxCox_forecasted_sold, color = "BoxCox")) +
+   geom_line(data = prediction9,aes( x = event_date,y =forecasted_lm9_arima, color = " lm_arima")) +
+   geom_line(data = prediction9,aes( x = event_date,y = add_arima_forecasted, color = "add_arima_forecasted"))+ 
+   geom_line(data = prediction9,aes( x = event_date,y =mul_arima_forecasted, color = "mul_arima_forecasted")) +
+   geom_line(data = prediction9,aes( x = event_date,y = reg_add_arima_forecasted, color = "reg_add_arima_forecasted"))+ 
+   geom_line(data = prediction9,aes( x = event_date,y =reg_mul_arima_forecasted , color = "reg_mul_arima_forecasted"))+
+   labs(
+    x= "time",
+    y= "sales",
+    main= "Predictions vs. Actual Values"
+  ) + 
+  theme_minimal()
+```
+
+
+## EROR RATES
+
+
+
+```{r}
+error9 =  data.table()
+
+for(i in 3:(length(prediction9))){
+  
+
+  error9 <- rbind(error9, accu(test9$sold_count,prediction9[,..i],colnames(prediction9[,..i])))
+}
+
+
+error9
+
+
+```
+
+Linear Regression model with no transformation has the lowest WAMPE value therefore, it is selected for best fit model ,however,
+
+In every day, the error rates are calculated for last 14 days and the model predictions and the model prediction has the lowest  WMAPE value of is selected. 
+
+
+## Next Day Prediction
+
+
+```{r}
+## forcast next day
+
+
+nextday_pred <-c(
+
+"add_arima" = add_arima(product9,1,7),
+"mul_arima" = mul_arima(product9,1,7),
+"xreg_mul_arima" = xreg_mul_arima(product9,1,7, xreg9),
+"xreg_add_arima" = xreg_add_arima(product9,1,7, xreg9),
+"forecast_lm" =forecast_lm9(product9,nextday)$forecast,
+"forecast_lm_arima" = forecast_lm9_arima(product9,nextday)[1],
+"BoxCox_lm" = InvBoxCox(forecast_BoxCox9(product9,nextday)$forecast, lambda = lambda),
+"Sqrt_lm" = (forecast_lm9_sqrt(product9,nextday)$forecast)^2
+
+
+)
+
+nextday_pred
+
+```
+
+
+
+
+
+
+# CONCLUSION
+
+
+In order to predict one day ahead sales of the different products, different ARIMA and Linear Regression models have been tried and according to their performance on the test set, which consists of dates from 29 May 2021 to 11 June 2021, different models have been selected for each product.
+As external data, campaign dates of Trendyol is included, however since every campaign that of Trendyol is not included in the website, some of the outlier may have not been explained more correctly in the models, in order to improve the models, further investigation may be held. Also, the sales are affected from the overall component of the economy, so more external data could be included such as dollar exchange rate, for improved accuracy.
+
+Approaching differently to each product is one of the strong sides of the model, since it is a time consuming task. Also trying various models and measuring their performances based on their predictions on the test data is also a strong side of the models that have been proposed for each product.
+
+ Overall, it can be said that models work fine, deviation from the real values is not too big.
+
+# REFERENCES
+
+Lecture Notes
+
+# RMD 
+ The code of my study is available from [here](https://bu-ie-360.github.io/spring21-seymacakir/files/Project/finalproject.Rmd)
+

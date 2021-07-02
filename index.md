@@ -27,3 +27,10 @@
 [**Decomposition and ARIMA**](files/homework-3/homework-3.html)
 
 **-----------------------------------------------------------------------------------------------------------**
+
+## Project
+
+[**Trendyol Product Sale Forecasting**](files/Project/finalproject.html)
+
+
+
