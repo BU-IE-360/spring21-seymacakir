@@ -28,6 +28,13 @@
 
 **-----------------------------------------------------------------------------------------------------------**
 
+## Homework4-5
+
+[**Arima Model with Regressors**](files/homework4-5/homework4-5.html)
+
+**-----------------------------------------------------------------------------------------------------------**
+
+
 ## Project
 
 [**Trendyol Product Sale Forecasting**](files/Project/finalproject.html)
